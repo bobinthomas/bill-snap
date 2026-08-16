@@ -66,6 +66,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Supabase image cache, same key scheme as the Bootstrap E2E job so both
+      # jobs share ONE cache entry. On a hit the images are `docker load`ed
+      # below and `supabase start` skips the ~2-4 min pull; after a successful
+      # start the set is re-`docker save`d. This also stops the two jobs from
+      # contending on Docker Hub rate limits when they run in parallel.
+      - name: Get Supabase CLI version
+        id: cli-ver
+        run: echo "version=$(npx -y supabase@2.114.0 --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Supabase images
+        id: supabase-cache
+        uses: actions/cache@v4
+        with:
+          path: supabase-images.tar.gz
+          key: supabase-images-${{ steps.cli-ver.outputs.version }}-${{ hashFiles('supabase/config.toml') }}
+
+      - name: Load cached Supabase images
+        if: steps.supabase-cache.outputs.cache-hit == 'true'
+        run: docker load < supabase-images.tar.gz
+
       # Optional: authenticating to Docker Hub raises the anonymous pull limit
       # (100/6h per shared runner IP) and avoids `toomanyrequests` flakes when
       # jobs pull the Supabase images in parallel. Set DOCKERHUB_USERNAME /
@@ -84,7 +104,8 @@ jobs:
       # First boot pulls the Postgres/Storage/Auth images (~2-4 min), then
       # applies migrations + seed automatically. Retry the pull-heavy start up
       # to 3 times: fresh runners share egress IPs, so anonymous pulls can hit
-      # Docker rate limits; pulled layers persist between attempts.
+      # Docker rate limits; pulled layers persist between attempts. With a
+      # cache hit the images are already loaded and this step is near-instant.
       - name: Start local Supabase
         run: |
           for attempt in 1 2 3; do
@@ -94,6 +115,22 @@ jobs:
             sleep 20
           done
           exit 1
+
+      # Cache the pulled image set for the next run (actions/cache uploads at
+      # job end). Skipped on a cache hit — the images came from the cache, and
+      # the post-step no-ops on an exact key match anyway. Filtered to supabase
+      # images and `<none>` tags, which docker save can't address. Uses the
+      # pinned CLI version so the key matches the Bootstrap E2E job's entry.
+      - name: Cache Supabase images
+        if: steps.supabase-cache.outputs.cache-hit != 'true'
+        run: |
+          IMGS=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -i supabase | grep -v '<none>' | tr '\n' ' ')
+          if [ -n "$IMGS" ]; then
+            docker save $IMGS | gzip > supabase-images.tar.gz
+            echo "cached supabase image set ($(du -h supabase-images.tar.gz | cut -f1))"
+          else
+            echo "no supabase images found to cache"
+          fi
 
       # Re-apply from a known state so the smoke always runs against the exact
       # committed schema + seed, matching the local `dev:full` recipe.

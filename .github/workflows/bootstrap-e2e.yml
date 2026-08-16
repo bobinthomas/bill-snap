@@ -45,6 +45,32 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Supabase image cache: `supabase start` pulls the whole image set
+      # (~2-4 min) — once per image set, not per run. The key tracks the CLI
+      # version (the CLI decides which image tags to pull) plus the committed
+      # config.toml (which can change the set, e.g. [db] image or services).
+      # On a hit the images are `docker load`ed below, so `supabase start`
+      # skips the pull entirely; after a successful start the set is
+      # re-`docker save`d. The ci.yml smoke job uses the same key format, so
+      # both jobs share one cache entry (and stop contending on Docker rate
+      # limits) while the unpinned bootstrap CLI resolves to the same version
+      # as the smoke job's pinned 2.114.0 — and a version drift naturally
+      # splits into its own correctly-keyed entry.
+      - name: Get Supabase CLI version
+        id: cli-ver
+        run: echo "version=$(npx -y supabase --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Supabase images
+        id: supabase-cache
+        uses: actions/cache@v4
+        with:
+          path: supabase-images.tar.gz
+          key: supabase-images-${{ steps.cli-ver.outputs.version }}-${{ hashFiles('supabase/config.toml') }}
+
+      - name: Load cached Supabase images
+        if: steps.supabase-cache.outputs.cache-hit == 'true'
+        run: docker load < supabase-images.tar.gz
+
       # Optional: authenticating to Docker Hub raises the anonymous pull limit
       # (100/6h per shared runner IP) and avoids the `toomanyrequests` flakes
       # that hit parallel image pulls. Set DOCKERHUB_USERNAME/DOCKERHUB_TOKEN
@@ -63,13 +89,17 @@ jobs:
       # The bootstrap never exits on its own — it blocks on the wrangler dev
       # child — so run it in the background and drive it: wait for the banner
       # in its log, assert the endpoints and env wiring, then `dev:down` to
-      # stop the stack (which also makes the bootstrap exit 0).
+      # stop the stack (which also makes the bootstrap exit 0). CACHE_HIT is
+      # passed through so the image save below is skipped on hits (the cache
+      # post-step would no-op on an exact key match anyway).
       #
       # Up to 3 attempts: the first `supabase start` on a fresh runner pulls
       # the image set and can hit Docker rate limits (toomanyrequests), but
       # pulled layers persist on the runner, so a retry continues from where
       # the limit struck. Non-rate-limit failures fail immediately.
       - name: Run dev:full end to end
+        env:
+          CACHE_HIT: ${{ steps.supabase-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
           echo "RUN_SMOKE variant: ${RUN_SMOKE:-off}"
@@ -102,6 +132,21 @@ jobs:
 
           echo "=== ✅ Full stack banner ==="
           grep -A9 "Full stack is up" full.log | head -10
+
+          # Cache the pulled image set for the next run (the actions/cache
+          # post-step uploads this at job end). Skipped on a cache hit — the
+          # images came from the cache, and the post-step no-ops on an exact
+          # key match anyway. Filtered to supabase images and `<none>` tags,
+          # which docker save can't address.
+          if [ "$CACHE_HIT" != "true" ]; then
+            IMGS=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -i supabase | grep -v '<none>' | tr '\n' ' ')
+            if [ -n "$IMGS" ]; then
+              docker save $IMGS | gzip > supabase-images.tar.gz
+              echo "cached supabase image set ($(du -h supabase-images.tar.gz | cut -f1)) for the next run"
+            fi
+          else
+            echo "cache hit — images already cached, skipping re-save"
+          fi
 
           echo "=== asserting endpoints + env wiring ==="
           curl -sf http://127.0.0.1:8795/health >/dev/null && echo "PASS: /health"
