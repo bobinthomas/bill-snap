@@ -7,13 +7,20 @@ name: Bootstrap E2E
 # lets the bootstrap exit 0. This is the only job that exercises the actual
 # bootstrap script (scripts/dev-bootstrap.mjs) with real Docker.
 #
-# Heavier than the other CI jobs (pulls the Supabase images each run), so it
-# runs on main / release tags / manual dispatch rather than every feature
-# branch; the real-store smoke job (ci.yml) already covers PRs. Add
-# RUN_SMOKE=1 to the step below to also run the photo → confirm → undo round
-# trip inside this job instead of the separate smoke job.
+# Manual runs (workflow_dispatch) default to the FULL proof: the `run_smoke`
+# input enables the bootstrap's RUN_SMOKE=1 gate, which runs the photo →
+# confirm → undo round trip against the freshly reset Supabase right after
+# the env merge — and aborts the whole bootstrap if it fails — so one run
+# proves dev:full + the round trip + the teardown together. Push/tag runs
+# leave it off (inputs is empty there; the separate smoke job in ci.yml
+# already covers every push).
 on:
   workflow_dispatch:
+    inputs:
+      run_smoke:
+        description: "Also run the photo → confirm → undo smoke inside this job (RUN_SMOKE=1)"
+        type: boolean
+        default: true
   push:
     branches: [main]
     tags: ["v*"]
@@ -23,6 +30,10 @@ jobs:
     name: dev:full → banner → dev:down
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      # Dispatch input → the bootstrap's RUN_SMOKE=1 gate. Evaluates to '' on
+      # push/tag runs (no inputs), '1' on manual runs unless unchecked.
+      RUN_SMOKE: ${{ inputs.run_smoke == true && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -61,6 +72,7 @@ jobs:
       - name: Run dev:full end to end
         run: |
           set -euo pipefail
+          echo "RUN_SMOKE variant: ${RUN_SMOKE:-off}"
           found=""
           for attempt in 1 2 3; do
             echo "=== attempt $attempt ==="
@@ -98,6 +110,18 @@ jobs:
           grep -q "SUPABASE_URL=http://127.0.0.1:54321" .dev.vars && echo "PASS: SUPABASE_URL in .dev.vars"
           grep -q "^SUPABASE_SERVICE_ROLE_KEY=eyJ" .dev.vars && echo "PASS: service key in .dev.vars"
           grep -q "SUPABASE_URL=http://127.0.0.1:54321" .env.smoke && echo "PASS: .env.smoke populated"
+
+          # RUN_SMOKE variant: the bootstrap's gate ran the round trip before
+          # wrangler (and would have aborted the bootstrap on failure), so by
+          # the banner the smoke must have passed — assert its summary line.
+          if [ "$RUN_SMOKE" = "1" ]; then
+            if grep -q "Smoke test passed" full.log; then
+              echo "PASS: photo → confirm → undo smoke ran and passed inside dev:full"
+            else
+              echo "::error::RUN_SMOKE gate did not report a pass — see full.log"
+              exit 1
+            fi
+          fi
 
           echo "=== teardown: dev:down ==="
           DEV_PORT=8795 npm run dev:down

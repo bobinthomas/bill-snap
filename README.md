@@ -212,7 +212,10 @@ A separate **Bootstrap E2E** workflow (`.github/workflows/bootstrap-e2e.yml`, on
 main / `v*` tags / manual dispatch) proves the bootstrap itself: it runs
 `npm run dev:full` on a real Docker runner, waits for the ✅ Full stack banner,
 asserts the demo/dashboard endpoints and env wiring, then runs `npm run dev:down`
-and reports the banner in the job summary.
+and reports the banner in the job summary. Manual runs (dispatch) default the
+`run_smoke` input ON, which additionally runs the photo → confirm → undo round
+trip inside the same job (the bootstrap's `RUN_SMOKE=1` gate), so one run
+proves the full stack, the real-store round trip, and the teardown together.
 
 Then point the Meta WhatsApp webhook at `https://<your-worker>.workers.dev/webhook`
 with your verify token. The `[triggers]` cron in `wrangler.toml` runs the
