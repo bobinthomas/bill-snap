@@ -1,12 +1,14 @@
-# BillSnap Worker config (SCAFFOLDING_PLAN.md §5)
+# BillSnap Worker config (SCAFFOLDING_PLAN.md §5) — LOCAL DEV config.
 name = "bill-snap"
 main = "src/index.ts"
 compatibility_date = "2026-08-01"
 
-# Workers AI binding (§5.3 fallback parser) — available natively as env.AI,
-# no API key, no external HTTP calls.
-[ai]
-binding = "AI"
+# NOTE: the Workers AI binding is deliberately NOT here. It is remote-only:
+# `wrangler dev` opens a remote proxy session for it, which requires a
+# Cloudflare login — so a fresh clone (or CI runner) without credentials
+# would hang before the server starts. Dev keeps the regex-first pipeline
+# with the GEMINI_MOCK=true canned readings; the real env.AI binding lives in
+# wrangler.deploy.toml and is applied by `npm run deploy` (see §5.3).
 
 # Cron for the nudge/expiry sweep (§5.6/§6.2). Dev: `wrangler dev --test-scheduled`
 # fires the scheduled handler when the dev URL is hit.

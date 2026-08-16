@@ -55,5 +55,7 @@ jobs:
           echo "$SUPABASE_URL" | npx wrangler secret put SUPABASE_URL
           echo "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 
+      # wrangler.deploy.toml carries the Workers AI binding (kept out of
+      # wrangler.toml so local dev/CI never needs a Cloudflare login).
       - name: Deploy to Cloudflare Workers
-        run: npx wrangler deploy
+        run: npx wrangler deploy -c wrangler.deploy.toml

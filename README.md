@@ -35,8 +35,9 @@ the scaffold plan (milestones M0–M8) in
 ## Prerequisites
 
 - Node 20+ and npm
-- A Cloudflare account (`npx wrangler login`) — only needed for the Workers AI
-  binding in local dev and for deploying
+- A Cloudflare account (`npx wrangler login`) — only needed for **deploying**
+  (the Workers AI binding is remote-only and lives in `wrangler.deploy.toml`,
+  so local dev and CI run without any Cloudflare credentials)
 - The Supabase CLI — only for the local Supabase + smoke recipe (see below)
 
 ## Install and run locally
@@ -101,7 +102,9 @@ captured date/amount and a **Retry OCR** button. The dashboard shows the logged
 bills with month/category/vendor filters, the auto-log KPI, and CSV export.
 
 Set `GEMINI_MOCK=true` in `.dev.vars` for deterministic canned AI readings
-(no Workers AI quota); leave it unset to exercise the real `env.AI` binding.
+(no Workers AI quota, no binding needed). The real `env.AI` binding is
+applied only at deploy time via `wrangler.deploy.toml`, so local dev and the
+browser demo never require a Cloudflare login.
 
 ## Environment variables
 
@@ -170,7 +173,7 @@ npm run dev         # wrangler dev (add -- --var DEV_DEMO:true for the demo)
 npm run dev:full    # one-command bootstrap: Supabase up + seed + wrangler dev
                     #   (RUN_SMOKE=1 npm run dev:full also runs the smoke first)
 npm run dev:down    # teardown: stop wrangler dev on the dev port + supabase stop
-npm run deploy      # wrangler deploy
+npm run deploy      # wrangler deploy -c wrangler.deploy.toml (adds the AI binding)
 ```
 
 ## Deploying

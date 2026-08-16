@@ -94,3 +94,14 @@ create index transactions_user_created on transactions (user_phone, created_at d
 create index transactions_active_draft on transactions (user_phone) where status = 'draft';
 -- Nudge/expiry sweep (cron, §5.6).
 create index transactions_sweep on transactions (status, flow_expires_at);
+
+-- ------------------------------------------------------------------ grants
+-- Since supabase CLI ≥2.x stops auto-exposing new tables to the Data API
+-- roles (the legacy `auto_expose_new_tables` toggle is removed 2026-10-30),
+-- privileges must be granted explicitly. The Worker talks to PostgREST as
+-- `service_role` (bypasses RLS via BYPASSRLS but needs table privileges);
+-- `anon`/`authenticated` get read access gated by the RLS policies in 0002.
+-- This mirrors the hosted default so local behaviour matches production.
+grant usage on schema public to anon, authenticated, service_role;
+grant all on all tables in schema public to service_role;
+grant select on all tables in schema public to anon, authenticated;

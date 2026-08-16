@@ -1,0 +1,17 @@
+# BillSnap Worker config — PRODUCTION DEPLOY ONLY (`wrangler deploy -c wrangler.deploy.toml`).
+#
+# Same as wrangler.toml plus the Workers AI binding (§5.3 fallback parser,
+# available natively as env.AI — no API key, no external HTTP calls). The
+# binding is kept out of wrangler.toml because it is remote-only: `wrangler
+# dev` opens a remote proxy session for it that requires a Cloudflare login,
+# which would block fresh clones and CI runners. Keep this file in sync with
+# wrangler.toml (name/main/compatibility_date/triggers).
+name = "bill-snap"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+[ai]
+binding = "AI"
+
+[triggers]
+crons = ["*/2 * * * *"]
