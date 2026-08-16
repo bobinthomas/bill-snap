@@ -1,0 +1,13 @@
+{
+  "id": "sample-20",
+  "kind": "image",
+  "source": "government charge (GST-exempt)",
+  "orientation": "portrait",
+  "should_log": true,
+  "expected": {
+    "amount": 158.3,
+    "date": "2026-08-04",
+    "vendor": "Service NSW",
+    "gst_basis": "none"
+  }
+}

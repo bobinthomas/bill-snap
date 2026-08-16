@@ -1,0 +1,1452 @@
+{
+  "generatedAt": "2026-08-16T07:57:36.508Z",
+  "config": {
+    "geminiConfigured": true
+  },
+  "corpus": {
+    "total": 36,
+    "scored": 12,
+    "skippedMissingImage": [
+      "sample-02",
+      "sample-03",
+      "sample-04",
+      "sample-05",
+      "sample-06",
+      "sample-07",
+      "sample-08",
+      "sample-09",
+      "sample-10",
+      "sample-11",
+      "sample-12",
+      "sample-13",
+      "sample-14",
+      "sample-15",
+      "sample-16",
+      "sample-17",
+      "sample-18",
+      "sample-19",
+      "sample-20",
+      "sample-21",
+      "sample-22",
+      "sample-23",
+      "sample-24",
+      "sample-25"
+    ]
+  },
+  "targets": {
+    "successRate": 0.7,
+    "amount": 0.95,
+    "date": 0.9,
+    "vendor": 0.8
+  },
+  "defaults": {
+    "amountHigh": 0.9,
+    "dateHigh": 0.85,
+    "vendorHigh": 0.75,
+    "pass": false
+  },
+  "combos": [
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.8,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.85,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.9,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.75,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.8,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.85,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.9,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.6,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.7,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.75,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.8,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    },
+    {
+      "amountHigh": 0.95,
+      "dateHigh": 0.95,
+      "vendorHigh": 0.9,
+      "pass": false,
+      "successRate": 0.9166666666666666,
+      "amountAccuracy": 1,
+      "dateAccuracy": 1,
+      "vendorAccuracy": 1,
+      "gst": {
+        "n": 5,
+        "correct": 4
+      }
+    }
+  ],
+  "recommended": null,
+  "passingCount": 0
+}

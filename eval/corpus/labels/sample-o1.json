@@ -1,0 +1,14 @@
+{
+  "id": "sample-o1",
+  "kind": "text",
+  "ocr_text": "Internet Bill\n10/08/2026\nTelstra\nAmount: $99.95\nGST: $10.00",
+  "source": "OCR noise: multi-line heading (vendor cleanup regression)",
+  "should_log": true,
+  "expected": {
+    "amount": 99.95,
+    "date": "2026-08-10",
+    "vendor": "Telstra",
+    "gst": 10.0,
+    "gst_basis": "exclusive"
+  }
+}

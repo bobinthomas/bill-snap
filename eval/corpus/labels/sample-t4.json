@@ -1,0 +1,12 @@
+{
+  "id": "sample-t4",
+  "kind": "text",
+  "text": "inventory 750.25 acme supplies",
+  "source": "manual inventory entry (§5.3 text format)",
+  "should_log": true,
+  "expected": {
+    "amount": 750.25,
+    "vendor": "acme supplies",
+    "gst_basis": "none"
+  }
+}

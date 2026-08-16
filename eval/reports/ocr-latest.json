@@ -1,0 +1,83 @@
+{
+  "generatedAt": "2026-08-16T10:26:15.757Z",
+  "note": "OCR-path measurement — no ground truth, so no pass/fail; per-field confidence and date-leak guard firings only.",
+  "images": {
+    "total": 1,
+    "explicit": true
+  },
+  "dateLeakGuard": {
+    "entriesWithFragments": 0,
+    "guardFirings": 0,
+    "guardFireRate": 0
+  },
+  "gating": {
+    "partial": 1
+  },
+  "entries": [
+    {
+      "id": "photo",
+      "gate": "partial",
+      "source": "ocr",
+      "machineRead": true,
+      "fields": {
+        "amount": {
+          "value": 321.68,
+          "confidence": 1
+        },
+        "date": {
+          "value": null,
+          "confidence": 0
+        },
+        "vendor": {
+          "value": "HET LN IE",
+          "confidence": 1
+        },
+        "abn": {
+          "value": null,
+          "confidence": 0
+        },
+        "gst": {
+          "value": null,
+          "confidence": 0
+        },
+        "invoice_number": {
+          "value": null,
+          "confidence": 0
+        },
+        "due_date": {
+          "value": null,
+          "confidence": 0
+        },
+        "gst_basis": {
+          "value": "none",
+          "confidence": 1
+        }
+      },
+      "dateFragments": [],
+      "guardFired": false,
+      "naiveLeak": 5,
+      "rawLines": [
+        "[5] Hore nan] %",
+        "[ed }",
+        "HET LN IE .",
+        "wm N f",
+        "HIE: ASIA TE: BRR",
+        "PA TRE",
+        "ELT IRE IEW 3",
+        "SALE oa",
+        "I RR TON 4 | &",
+        "0 95 ; WCTEHEAD ER ORE © w/e",
+        "WOE i WC za\"",
+        "AMOUNT Rs 32",
+        "3 NERS. )",
+        "101AL Rs 321.68",
+        "4 STON DPF en 160",
+        "ersion 1 88 3",
+        "\\ 50",
+        "gr",
+        "r HH A 128:05 °",
+        "CLIFTON Re ay ~& 13.09"
+      ]
+    }
+  ]
+}

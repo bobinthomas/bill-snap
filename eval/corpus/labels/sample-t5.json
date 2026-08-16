@@ -1,0 +1,12 @@
+{
+  "id": "sample-t5",
+  "kind": "text",
+  "text": "misc 12.50 parking",
+  "source": "manual misc entry (§5.3 text format)",
+  "should_log": true,
+  "expected": {
+    "amount": 12.5,
+    "vendor": "parking",
+    "gst_basis": "none"
+  }
+}

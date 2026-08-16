@@ -1,0 +1,17 @@
+{
+  "id": "sample-03",
+  "kind": "image",
+  "source": "telco invoice (GST exclusive)",
+  "orientation": "portrait",
+  "should_log": true,
+  "expected": {
+    "amount": 120.0,
+    "date": "2026-07-28",
+    "vendor": "Telstra",
+    "abn": "51 824 753 556",
+    "gst": 12.0,
+    "gst_basis": "exclusive",
+    "invoice_number": "INV-2026-099",
+    "due_date": "2026-08-18"
+  }
+}

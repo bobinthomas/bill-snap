@@ -1,0 +1,13 @@
+{
+  "id": "sample-04",
+  "kind": "image",
+  "source": "rent receipt (no GST, no invoice number)",
+  "orientation": "landscape",
+  "should_log": true,
+  "expected": {
+    "amount": 1800.5,
+    "date": "2026-08-01",
+    "vendor": "Ray White",
+    "gst_basis": "none"
+  }
+}

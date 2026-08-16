@@ -1,0 +1,15 @@
+{
+  "id": "sample-23",
+  "kind": "image",
+  "source": "fuel docket, near-duplicate of sample-17 (same vendor, next fill)",
+  "orientation": "portrait",
+  "duplicate_of": "sample-17",
+  "should_log": true,
+  "expected": {
+    "amount": 61.55,
+    "date": "2026-08-15",
+    "vendor": "Caltex",
+    "gst": 5.6,
+    "gst_basis": "inclusive"
+  }
+}

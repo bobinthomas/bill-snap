@@ -1,0 +1,17 @@
+{
+  "id": "sample-14",
+  "kind": "image",
+  "source": "commercial telco invoice (GST exclusive)",
+  "orientation": "portrait",
+  "should_log": true,
+  "expected": {
+    "amount": 458.0,
+    "date": "2026-08-02",
+    "vendor": "Telstra Business",
+    "abn": "51 824 753 556",
+    "gst": 45.8,
+    "gst_basis": "exclusive",
+    "invoice_number": "INV-2026-118",
+    "due_date": "2026-08-22"
+  }
+}

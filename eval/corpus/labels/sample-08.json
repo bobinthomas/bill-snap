@@ -1,0 +1,9 @@
+{
+  "id": "sample-08",
+  "kind": "image",
+  "source": "non-bill image (photo of a dog) — must not auto-log",
+  "orientation": "portrait",
+  "hard": true,
+  "should_log": false,
+  "expected": {}
+}

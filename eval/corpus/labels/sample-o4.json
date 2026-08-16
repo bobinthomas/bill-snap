@@ -1,0 +1,13 @@
+{
+  "id": "sample-o4",
+  "kind": "text",
+  "ocr_text": "Bill's Plumbing\n10/08/2026\nInvoice 4451\nAmount: $180.00",
+  "source": "OCR noise: possessive vendor + numeric invoice (vendor cleanup regression)",
+  "should_log": true,
+  "expected": {
+    "amount": 180.0,
+    "date": "2026-08-10",
+    "vendor": "Bill's Plumbing",
+    "gst_basis": "none"
+  }
+}

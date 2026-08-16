@@ -1,0 +1,17 @@
+{
+  "id": "sample-01",
+  "kind": "image",
+  "source": "donated electricity bill (GST inclusive)",
+  "orientation": "portrait",
+  "should_log": true,
+  "expected": {
+    "amount": 245.0,
+    "date": "2026-08-10",
+    "vendor": "Origin Energy",
+    "abn": "51 824 753 556",
+    "gst": 22.27,
+    "gst_basis": "inclusive",
+    "invoice_number": "INV-2847",
+    "due_date": "2026-08-30"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "sample-25",
+  "kind": "image",
+  "source": "designer invoice (GST exclusive)",
+  "orientation": "landscape",
+  "should_log": true,
+  "expected": {
+    "amount": 650.0,
+    "date": "2026-07-25",
+    "vendor": "Pixel Design Co",
+    "gst": 65.0,
+    "gst_basis": "exclusive",
+    "invoice_number": "INV-2026-44",
+    "due_date": "2026-08-15"
+  }
+}

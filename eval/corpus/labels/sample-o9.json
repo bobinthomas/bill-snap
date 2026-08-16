@@ -1,0 +1,14 @@
+{
+  "id": "sample-o9",
+  "kind": "text",
+  "ocr_text": "Origin Energy\n10/08/2026\nTotal GST: $24.30\nSubtotal: $243.00\nTotal: $267.30",
+  "source": "OCR noise: stray Total GST line before the real total (amount tiebreak regression)",
+  "should_log": true,
+  "expected": {
+    "amount": 267.3,
+    "date": "2026-08-10",
+    "vendor": "Origin",
+    "gst": 26.73,
+    "gst_basis": "exclusive"
+  }
+}

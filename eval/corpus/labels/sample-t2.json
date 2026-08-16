@@ -1,0 +1,12 @@
+{
+  "id": "sample-t2",
+  "kind": "text",
+  "text": "electricity 245.00 origin",
+  "source": "manual utilities entry (§5.3 text format)",
+  "should_log": true,
+  "expected": {
+    "amount": 245.0,
+    "vendor": "origin",
+    "gst_basis": "none"
+  }
+}

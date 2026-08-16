@@ -1,0 +1,13 @@
+{
+  "id": "sample-11",
+  "kind": "image",
+  "source": "wages book page (no GST)",
+  "orientation": "landscape",
+  "should_log": true,
+  "expected": {
+    "amount": 620.0,
+    "date": "2026-08-03",
+    "vendor": "Priya",
+    "gst_basis": "none"
+  }
+}

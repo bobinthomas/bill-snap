@@ -1,0 +1,13 @@
+{
+  "id": "sample-o14",
+  "kind": "text",
+  "ocr_text": "RELIANCE HYPERMART LIMITED\nMADURAI IN\nDATE : 09 May 2009    TIME : 19:07:22\nAMOUNT    Rs            321.68\nTOTAL     Rs            321.68\n*** CUSTOMER COPY ***",
+  "source": "OCR noise: the DATE label survives but the date shape is mangled to space-month — the label fallback must capture 2009-05-09, and the guard must keep '09' from winning the amount",
+  "should_log": true,
+  "expected": {
+    "amount": 321.68,
+    "date": "2009-05-09",
+    "vendor": "Reliance Hypermart Limited",
+    "gst_basis": "none"
+  }
+}

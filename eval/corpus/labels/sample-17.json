@@ -1,0 +1,15 @@
+{
+  "id": "sample-17",
+  "kind": "image",
+  "source": "fuel docket (GST inclusive)",
+  "orientation": "landscape",
+  "duplicate_of": "sample-23",
+  "should_log": true,
+  "expected": {
+    "amount": 61.2,
+    "date": "2026-08-11",
+    "vendor": "Caltex",
+    "gst": 5.56,
+    "gst_basis": "inclusive"
+  }
+}

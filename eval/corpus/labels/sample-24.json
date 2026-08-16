@@ -1,0 +1,17 @@
+{
+  "id": "sample-24",
+  "kind": "image",
+  "source": "landscaping invoice (GST exclusive)",
+  "orientation": "portrait",
+  "should_log": true,
+  "expected": {
+    "amount": 1850.0,
+    "date": "2026-08-07",
+    "vendor": "GreenScape",
+    "abn": "51 824 753 556",
+    "gst": 185.0,
+    "gst_basis": "exclusive",
+    "invoice_number": "GS-447",
+    "due_date": "2026-08-28"
+  }
+}

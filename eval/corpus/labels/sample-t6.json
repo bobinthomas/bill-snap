@@ -1,0 +1,12 @@
+{
+  "id": "sample-t6",
+  "kind": "text",
+  "text": "telstra 245.00 03/08 2026",
+  "source": "manual entry with a mangled date fragment (§5.3 text format)",
+  "should_log": true,
+  "expected": {
+    "amount": 245.0,
+    "vendor": "telstra",
+    "gst_basis": "none"
+  }
+}

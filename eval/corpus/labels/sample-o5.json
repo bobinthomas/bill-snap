@@ -1,0 +1,14 @@
+{
+  "id": "sample-o5",
+  "kind": "text",
+  "ocr_text": "10/08/2026 Telstra GST INCLUSIVE $245.00",
+  "source": "OCR noise: alias word is the only vendor (alias-guard hardening)",
+  "should_log": true,
+  "expected": {
+    "amount": 245.0,
+    "date": "2026-08-10",
+    "vendor": "Telstra",
+    "gst": 22.27,
+    "gst_basis": "inclusive"
+  }
+}

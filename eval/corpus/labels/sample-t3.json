@@ -1,0 +1,11 @@
+{
+  "id": "sample-t3",
+  "kind": "text",
+  "text": "rent 1800.50",
+  "source": "manual rent entry, no vendor named (§5.3 text format)",
+  "should_log": true,
+  "expected": {
+    "amount": 1800.5,
+    "gst_basis": "none"
+  }
+}

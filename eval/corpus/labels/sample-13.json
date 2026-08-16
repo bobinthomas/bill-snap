@@ -1,0 +1,18 @@
+{
+  "id": "sample-13",
+  "kind": "image",
+  "source": "supplier invoice, near-duplicate of sample-06 (same vendor, next invoice)",
+  "orientation": "landscape",
+  "duplicate_of": "sample-06",
+  "should_log": true,
+  "expected": {
+    "amount": 1186.0,
+    "date": "2026-07-24",
+    "vendor": "Bunnings",
+    "abn": "51 824 753 556",
+    "gst": 107.82,
+    "gst_basis": "inclusive",
+    "invoice_number": "SUP-5562",
+    "due_date": "2026-08-23"
+  }
+}

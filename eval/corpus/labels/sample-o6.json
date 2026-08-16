@@ -1,0 +1,13 @@
+{
+  "id": "sample-o6",
+  "kind": "text",
+  "ocr_text": "08/08/2026\nTotal: $45.60\nGST inclusive",
+  "source": "OCR noise: headings only — vendor must stay null (no fabrication)",
+  "should_log": true,
+  "expected": {
+    "amount": 45.6,
+    "date": "2026-08-08",
+    "gst": 4.15,
+    "gst_basis": "inclusive"
+  }
+}

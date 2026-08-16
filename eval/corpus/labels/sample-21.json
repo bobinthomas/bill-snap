@@ -1,0 +1,14 @@
+{
+  "id": "sample-21",
+  "kind": "image",
+  "source": "handwritten cash receipt (hard: handwriting, no GST)",
+  "orientation": "portrait",
+  "hard": true,
+  "should_log": true,
+  "expected": {
+    "amount": 25.0,
+    "date": "2026-08-09",
+    "vendor": "Cash Only Traders",
+    "gst_basis": "none"
+  }
+}

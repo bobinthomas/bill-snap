@@ -1,0 +1,17 @@
+{
+  "id": "sample-19",
+  "kind": "image",
+  "source": "wholesale invoice (GST exclusive)",
+  "orientation": "landscape",
+  "should_log": true,
+  "expected": {
+    "amount": 3240.0,
+    "date": "2026-07-18",
+    "vendor": "Metcash",
+    "abn": "51 824 753 556",
+    "gst": 324.0,
+    "gst_basis": "exclusive",
+    "invoice_number": "WS-8823",
+    "due_date": "2026-08-17"
+  }
+}

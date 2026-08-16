@@ -1,0 +1,15 @@
+{
+  "id": "sample-12",
+  "kind": "image",
+  "source": "handwritten café docket (hard: handwriting, small receipt)",
+  "orientation": "portrait",
+  "hard": true,
+  "should_log": true,
+  "expected": {
+    "amount": 48.75,
+    "date": "2026-08-13",
+    "vendor": "Corner Café",
+    "gst": 4.43,
+    "gst_basis": "inclusive"
+  }
+}

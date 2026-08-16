@@ -1,0 +1,14 @@
+{
+  "id": "sample-o2",
+  "kind": "text",
+  "ocr_text": "Receipt\n- Bunnings Warehouse -\n10/08/2026\nTotal: $214.90\nABN: 51 824 753 556",
+  "source": "OCR noise: trailing hyphens + ABN line (vendor cleanup regression)",
+  "should_log": true,
+  "expected": {
+    "amount": 214.9,
+    "date": "2026-08-10",
+    "vendor": "Bunnings Warehouse",
+    "abn": "51 824 753 556",
+    "gst_basis": "none"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "id": "sample-o10",
+  "kind": "text",
+  "ocr_text": "Origin Energy\n10/08/2026\nSubtotal: $243.00\nGST: $24.30\nTotal:\n$267.30",
+  "source": "OCR noise: Total label and value on separate lines (amount picker regression)",
+  "should_log": true,
+  "expected": {
+    "amount": 267.3,
+    "date": "2026-08-10",
+    "vendor": "Origin",
+    "gst": 26.73,
+    "gst_basis": "exclusive"
+  }
+}

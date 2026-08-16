@@ -1,0 +1,13 @@
+{
+  "id": "sample-o13",
+  "kind": "text",
+  "ocr_text": "[5] Hore nan] %\nRELIANCE HYPERMART LIMITED\nMADURAI IN\nDATE : 09/05/2009    TIME : 19:07:22\nMID :                TID : 40503646\nBATCH NO : 000221    INVOICE NO : 002193\nSALE\nCARD : **** **** **** 7644    SWIPE\nAMOUNT    Rs            321.68\nTOTAL     Rs            321.68\n*** CUSTOMER COPY ***",
+  "source": "OCR noise: symbol-garbage top line before a readable merchant block — the vendor must come from the first clean-looking line, not every surviving token",
+  "should_log": true,
+  "expected": {
+    "amount": 321.68,
+    "date": "2009-05-09",
+    "vendor": "Reliance Hypermart Limited",
+    "gst_basis": "none"
+  }
+}

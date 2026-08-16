@@ -1,0 +1,15 @@
+{
+  "id": "sample-22",
+  "kind": "image",
+  "source": "insurance premium (GST inclusive)",
+  "orientation": "landscape",
+  "should_log": true,
+  "expected": {
+    "amount": 1452.0,
+    "date": "2026-08-05",
+    "vendor": "NRMA",
+    "gst": 132.0,
+    "gst_basis": "inclusive",
+    "invoice_number": "POL-88213"
+  }
+}

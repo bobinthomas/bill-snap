@@ -1,0 +1,15 @@
+{
+  "id": "sample-18",
+  "kind": "image",
+  "source": "grocery docket, near-duplicate of sample-09 (same vendor, a week later)",
+  "orientation": "portrait",
+  "duplicate_of": "sample-09",
+  "should_log": true,
+  "expected": {
+    "amount": 147.2,
+    "date": "2026-08-13",
+    "vendor": "Woolworths",
+    "gst": 13.38,
+    "gst_basis": "inclusive"
+  }
+}

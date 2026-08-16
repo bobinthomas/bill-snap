@@ -1,0 +1,15 @@
+{
+  "id": "sample-09",
+  "kind": "image",
+  "source": "grocery docket (GST inclusive)",
+  "orientation": "portrait",
+  "duplicate_of": "sample-18",
+  "should_log": true,
+  "expected": {
+    "amount": 142.35,
+    "date": "2026-08-06",
+    "vendor": "Woolworths",
+    "gst": 12.94,
+    "gst_basis": "inclusive"
+  }
+}

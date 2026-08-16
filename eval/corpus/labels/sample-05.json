@@ -1,0 +1,14 @@
+{
+  "id": "sample-05",
+  "kind": "image",
+  "source": "fuel docket (GST inclusive)",
+  "orientation": "portrait",
+  "should_log": true,
+  "expected": {
+    "amount": 85.6,
+    "date": "2026-08-14",
+    "vendor": "Ampol",
+    "gst": 7.78,
+    "gst_basis": "inclusive"
+  }
+}

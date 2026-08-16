@@ -1,0 +1,17 @@
+{
+  "id": "sample-10",
+  "kind": "image",
+  "source": "plumbing quote (GST exclusive)",
+  "orientation": "portrait",
+  "should_log": true,
+  "expected": {
+    "amount": 890.0,
+    "date": "2026-07-31",
+    "vendor": "Metro Plumbing",
+    "abn": "51 824 753 556",
+    "gst": 89.0,
+    "gst_basis": "exclusive",
+    "invoice_number": "Q-1102",
+    "due_date": "2026-08-21"
+  }
+}

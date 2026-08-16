@@ -1,0 +1,15 @@
+{
+  "id": "sample-07",
+  "kind": "image",
+  "source": "hard case: crumpled dark photo, handwritten amounts",
+  "orientation": "landscape",
+  "hard": true,
+  "should_log": true,
+  "expected": {
+    "amount": 32.5,
+    "date": "2026-08-12",
+    "vendor": "Coles",
+    "gst": 2.95,
+    "gst_basis": "inclusive"
+  }
+}

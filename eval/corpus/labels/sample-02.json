@@ -1,0 +1,13 @@
+{
+  "id": "sample-02",
+  "kind": "image",
+  "source": "cash wages docket (no GST)",
+  "orientation": "portrait",
+  "should_log": true,
+  "expected": {
+    "amount": 500.0,
+    "date": "2026-08-01",
+    "vendor": "Rajesh",
+    "gst_basis": "none"
+  }
+}

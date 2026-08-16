@@ -1,0 +1,14 @@
+{
+  "id": "sample-o3",
+  "kind": "text",
+  "ocr_text": "Origin Energy\n10/08/2026\nInvoice Number: INV-2847\nTotal $245.00\nGST inclusive\nThank you for your business",
+  "source": "OCR noise: invoice number + boilerplate (vendor cleanup regression)",
+  "should_log": true,
+  "expected": {
+    "amount": 245.0,
+    "date": "2026-08-10",
+    "vendor": "Origin",
+    "gst": 22.27,
+    "gst_basis": "inclusive"
+  }
+}

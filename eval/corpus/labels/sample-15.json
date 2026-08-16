@@ -1,0 +1,13 @@
+{
+  "id": "sample-15",
+  "kind": "image",
+  "source": "rent ledger line (no GST)",
+  "orientation": "landscape",
+  "should_log": true,
+  "expected": {
+    "amount": 2400.0,
+    "date": "2026-08-01",
+    "vendor": "Ray White",
+    "gst_basis": "none"
+  }
+}

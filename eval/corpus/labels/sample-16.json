@@ -1,0 +1,16 @@
+{
+  "id": "sample-16",
+  "kind": "image",
+  "source": "handwritten handyman invoice (hard: handwriting, angled shot)",
+  "orientation": "portrait",
+  "hard": true,
+  "should_log": true,
+  "expected": {
+    "amount": 96.0,
+    "date": "2026-07-29",
+    "vendor": "Jim's Handyman",
+    "gst": 8.73,
+    "gst_basis": "inclusive",
+    "invoice_number": "JIM-014"
+  }
+}

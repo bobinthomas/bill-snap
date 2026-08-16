@@ -1,0 +1,13 @@
+{
+  "id": "sample-o11",
+  "kind": "text",
+  "ocr_text": "Telstra\n03-08-2026\nTotal $245.00",
+  "source": "OCR noise: dash-separated date (amount/date leak regression)",
+  "should_log": true,
+  "expected": {
+    "amount": 245.0,
+    "date": "2026-08-03",
+    "vendor": "Telstra",
+    "gst_basis": "none"
+  }
+}

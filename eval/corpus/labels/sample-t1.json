@@ -1,0 +1,12 @@
+{
+  "id": "sample-t1",
+  "kind": "text",
+  "text": "wages 500 rajesh",
+  "source": "manual cash entry (§5.3 text format)",
+  "should_log": true,
+  "expected": {
+    "amount": 500.0,
+    "vendor": "rajesh",
+    "gst_basis": "none"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "id": "sample-o12",
+  "kind": "text",
+  "ocr_text": "HDFC BANK\nRELIANCE HYPERMART LIMITED\nMADURAI IN\nDATE : 09/05/2009    TIME : 19:07:22\nMID :                TID : 40503646\nBATCH NO : 000221    INVOICE NO : 002193\nSALE\nCARD : **** **** **** 7644    SWIPE\nCARD TYPE : MASTERCARD  EXP DATE : **/**\nAPPR CODE : 021664    RRN : 000000002912\nAMOUNT    Rs            321.68\nTOTAL     Rs            321.68\n*** CUSTOMER COPY ***",
+  "source": "OCR noise: thermal card receipt — Rs currency, mangled TOTAL, number wall above the amount",
+  "should_log": true,
+  "expected": {
+    "amount": 321.68,
+    "date": "2009-05-09",
+    "vendor": "Reliance Hypermart Limited",
+    "gst_basis": "none"
+  }
+}
