@@ -34,28 +34,52 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Optional: authenticating to Docker Hub raises the anonymous pull limit
+      # (100/6h per shared runner IP) and avoids the `toomanyrequests` flakes
+      # that hit parallel image pulls. Set DOCKERHUB_USERNAME/DOCKERHUB_TOKEN
+      # repo secrets to enable.
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       # The bootstrap never exits on its own — it blocks on the wrangler dev
       # child — so run it in the background and drive it: wait for the banner
       # in its log, assert the endpoints and env wiring, then `dev:down` to
       # stop the stack (which also makes the bootstrap exit 0).
+      #
+      # Up to 3 attempts: the first `supabase start` on a fresh runner pulls
+      # the image set and can hit Docker rate limits (toomanyrequests), but
+      # pulled layers persist on the runner, so a retry continues from where
+      # the limit struck. Non-rate-limit failures fail immediately.
       - name: Run dev:full end to end
         run: |
           set -euo pipefail
-          DEV_PORT=8795 npm run dev:full > full.log 2>&1 &
-          BOOT_PID=$!
-
           found=""
-          for i in $(seq 1 120); do
-            if grep -q "Full stack is up" full.log 2>/dev/null; then found=1; break; fi
-            if ! kill -0 "$BOOT_PID" 2>/dev/null; then
-              echo "::error::dev:full exited before the banner — full log follows"
+          for attempt in 1 2 3; do
+            echo "=== attempt $attempt ==="
+            DEV_PORT=8795 npm run dev:full > full.log 2>&1 &
+            BOOT_PID=$!
+            for i in $(seq 1 120); do
+              if grep -q "Full stack is up" full.log 2>/dev/null; then found=1; break; fi
+              if ! kill -0 "$BOOT_PID" 2>/dev/null; then break; fi
+              sleep 5
+            done
+            if [ -n "$found" ]; then break; fi
+            if grep -qi "toomanyrequests\|rate exceeded" full.log; then
+              echo "attempt $attempt hit Docker pull rate limiting — retrying (pulled layers persist)"
+            else
+              echo "::error::dev:full failed without rate limiting — full log follows"
               cat full.log
               exit 1
             fi
-            sleep 5
+            [ "$attempt" = "3" ] && break
+            sleep 20
           done
           if [ -z "$found" ]; then
-            echo "::error::timed out waiting for the Full stack banner — full log follows"
+            echo "::error::dev:full did not reach the banner after 3 attempts — full log follows"
             cat full.log
             exit 1
           fi

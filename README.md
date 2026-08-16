@@ -188,6 +188,10 @@ GitHub Actions secrets for the deploy:
   `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TOKEN`, `SUPABASE_URL`,
   `SUPABASE_SERVICE_ROLE_KEY` — set as Cloudflare secrets by the workflow
   before each deploy
+- optional `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` — authenticates the Docker
+  pulls in the smoke and Bootstrap E2E jobs, which avoids anonymous
+  rate-limit flakes (`toomanyrequests`) when parallel jobs pull the Supabase
+  images on shared runner IPs
 
 Manual deploy (same steps, no CI gate):
 
