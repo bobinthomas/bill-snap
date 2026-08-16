@@ -63,7 +63,9 @@ Want the real Supabase stores, storage bucket, and the smoke-test wiring too?
 `npm run dev:full` (requires **Docker Desktop running** and the Supabase CLI,
 which `npx` fetches on first use) does it all in one step:
 
-1. creates `supabase/config.toml` if missing (`supabase init`)
+1. uses the committed `supabase/config.toml` (pinned project `bill-snap` and
+   ports, so every clone boots the same stack; `supabase init` runs only if
+   you deleted that file)
 2. starts local Supabase (`supabase start`) — first run pulls Docker images
 3. applies `supabase/migrations/` + `supabase/seed.sql` (`supabase db reset`;
    this resets local DB data to the seeded state each run)
@@ -75,6 +77,20 @@ The demo then runs against real Supabase (badge shows `persistence: supabase`),
 and `npm run smoke` works because `.env.smoke` is already populated. Use a
 different worker port with `DEV_PORT=8790 npm run dev:full`. If you only want
 the demo without any infrastructure, keep using the in-memory path above.
+
+`RUN_SMOKE=1 npm run dev:full` additionally runs the smoke test (photo →
+confirm → undo) against the freshly reset Supabase **before** starting
+`wrangler dev`, and prints a one-line pass/fail report. Because the bootstrap
+just wrote `.env.smoke`, the smoke runs for real (never auto-skips); if the
+round trip fails, the bootstrap aborts with the failure shown — rerun without
+`RUN_SMOKE=1` to skip the gate.
+
+Tear it all down with `npm run dev:down` — it stops the `wrangler dev`
+listening on the dev port (finding the real port-holder, so it also catches
+an orphaned server a hard Ctrl+C left behind) and runs `npx supabase stop`
+(keeps data volumes; `npx supabase stop --no-backup` deletes them). It's safe
+to run when nothing is up — it reports what it stopped and exits 0. Use
+`DEV_PORT=8790 npm run dev:down` to match a custom worker port.
 
 ### The demo console
 
@@ -104,14 +120,19 @@ Set `GEMINI_MOCK=true` in `.dev.vars` for deterministic canned AI readings
 ## Local Supabase + smoke test
 
 ```bash
-npx supabase init           # creates supabase/config.toml (not committed)
-npx supabase start          # boots local Postgres + Storage
+npx supabase start          # boots local Postgres + Storage (config.toml is
+                            # committed and pinned — no `supabase init` needed)
 npx supabase db reset       # applies supabase/migrations/ + supabase/seed.sql
 cp .env.smoke.example .env.smoke
 # fill in SUPABASE_URL (http://127.0.0.1:54321) and the service-role key
 # printed by `supabase start`
 npm run smoke               # photo → confirm → undo against the real stores
 ```
+
+`supabase/config.toml` is committed with `project_id = "bill-snap"` and every
+local port pinned (54321 API / 54322 Postgres / 54323 Studio / …), so a fresh
+clone gets the exact same local stack as everyone else — delete it and re-run
+`npx supabase init` only if you want to regenerate it from the CLI template.
 
 `npm test` auto-skips the smoke test when `SUPABASE_URL` isn't present, so a
 clone without Supabase still gets a green suite.
@@ -147,6 +168,8 @@ npm test            # vitest — unit + flow tests (smoke auto-skipped)
 npm run smoke       # Supabase round trip (needs local Supabase, see above)
 npm run dev         # wrangler dev (add -- --var DEV_DEMO:true for the demo)
 npm run dev:full    # one-command bootstrap: Supabase up + seed + wrangler dev
+                    #   (RUN_SMOKE=1 npm run dev:full also runs the smoke first)
+npm run dev:down    # teardown: stop wrangler dev on the dev port + supabase stop
 npm run deploy      # wrangler deploy
 ```
 
@@ -154,7 +177,9 @@ npm run deploy      # wrangler deploy
 
 Deploys are automated: the **Deploy** workflow (`.github/workflows/deploy.yml`)
 runs on every push to `main` and on `v*` tags — it re-runs the full CI gates
-(typecheck, tests, the §5.7 eval) and only then `wrangler deploy`s. Configure
+(typecheck, tests, the §5.7 eval, and the Supabase smoke round trip, which
+boots local Supabase on the runner and runs `npm run smoke` against the real
+migrations + seed) and only then `wrangler deploy`s. Configure
 GitHub Actions secrets for the deploy:
 
 - `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (Cloudflare API token with
@@ -175,6 +200,12 @@ wrangler secret put SUPABASE_URL
 wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 npm run deploy
 ```
+
+A separate **Bootstrap E2E** workflow (`.github/workflows/bootstrap-e2e.yml`, on
+main / `v*` tags / manual dispatch) proves the bootstrap itself: it runs
+`npm run dev:full` on a real Docker runner, waits for the ✅ Full stack banner,
+asserts the demo/dashboard endpoints and env wiring, then runs `npm run dev:down`
+and reports the banner in the job summary.
 
 Then point the Meta WhatsApp webhook at `https://<your-worker>.workers.dev/webhook`
 with your verify token. The `[triggers]` cron in `wrangler.toml` runs the

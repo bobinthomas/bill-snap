@@ -1,0 +1,95 @@
+name: Bootstrap E2E
+
+# Proves `npm run dev:full` end to end on a real Docker-enabled runner:
+# Docker guard → committed pinned supabase/config.toml → `supabase start` →
+# migrations + seed → env merge into .dev.vars/.env.smoke → wrangler dev →
+# the ✅ Full stack banner — then `npm run dev:down` proves the teardown and
+# lets the bootstrap exit 0. This is the only job that exercises the actual
+# bootstrap script (scripts/dev-bootstrap.mjs) with real Docker.
+#
+# Heavier than the other CI jobs (pulls the Supabase images each run), so it
+# runs on main / release tags / manual dispatch rather than every feature
+# branch; the real-store smoke job (ci.yml) already covers PRs. Add
+# RUN_SMOKE=1 to the step below to also run the photo → confirm → undo round
+# trip inside this job instead of the separate smoke job.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+jobs:
+  bootstrap:
+    name: dev:full → banner → dev:down
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The bootstrap never exits on its own — it blocks on the wrangler dev
+      # child — so run it in the background and drive it: wait for the banner
+      # in its log, assert the endpoints and env wiring, then `dev:down` to
+      # stop the stack (which also makes the bootstrap exit 0).
+      - name: Run dev:full end to end
+        run: |
+          set -euo pipefail
+          DEV_PORT=8795 npm run dev:full > full.log 2>&1 &
+          BOOT_PID=$!
+
+          found=""
+          for i in $(seq 1 120); do
+            if grep -q "Full stack is up" full.log 2>/dev/null; then found=1; break; fi
+            if ! kill -0 "$BOOT_PID" 2>/dev/null; then
+              echo "::error::dev:full exited before the banner — full log follows"
+              cat full.log
+              exit 1
+            fi
+            sleep 5
+          done
+          if [ -z "$found" ]; then
+            echo "::error::timed out waiting for the Full stack banner — full log follows"
+            cat full.log
+            exit 1
+          fi
+
+          echo "=== ✅ Full stack banner ==="
+          grep -A9 "Full stack is up" full.log | head -10
+
+          echo "=== asserting endpoints + env wiring ==="
+          curl -sf http://127.0.0.1:8795/health >/dev/null && echo "PASS: /health"
+          curl -sf http://127.0.0.1:8795/dev/demo >/dev/null && echo "PASS: /dev/demo"
+          curl -sf http://127.0.0.1:8795/dev/dashboard >/dev/null && echo "PASS: /dev/dashboard"
+          grep -q "SUPABASE_URL=http://127.0.0.1:54321" .dev.vars && echo "PASS: SUPABASE_URL in .dev.vars"
+          grep -q "^SUPABASE_SERVICE_ROLE_KEY=eyJ" .dev.vars && echo "PASS: service key in .dev.vars"
+          grep -q "SUPABASE_URL=http://127.0.0.1:54321" .env.smoke && echo "PASS: .env.smoke populated"
+
+          echo "=== teardown: dev:down ==="
+          DEV_PORT=8795 npm run dev:down
+          set +e
+          wait "$BOOT_PID"
+          BOOT_EXIT=$?
+          set -e
+          echo "bootstrap exit: $BOOT_EXIT"
+          test "$BOOT_EXIT" = "0"
+
+          {
+            echo "### Bootstrap E2E ✅"
+            echo ""
+            grep -A9 "Full stack is up" full.log | head -10
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload bootstrap log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-e2e-log
+          path: full.log
+          if-no-files-found: ignore

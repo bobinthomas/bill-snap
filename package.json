@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "dev:full": "node scripts/dev-bootstrap.mjs",
+    "dev:down": "node scripts/dev-teardown.mjs",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run",

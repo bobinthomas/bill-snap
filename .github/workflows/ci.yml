@@ -41,3 +41,45 @@ jobs:
           name: eval-report
           path: eval/reports/latest.json
           if-no-files-found: ignore
+
+  # Real-stores smoke (photo → confirm → undo) against a freshly booted local
+  # Supabase. This is the one gate that exercises the actual migrations
+  # (supabase/migrations/) + seed (supabase/seed.sql) and the REST/Storage
+  # stores, so a schema or store regression fails CI — and, via workflow_call,
+  # blocks deploys. Uses the committed pinned supabase/config.toml.
+  #
+  # The CLI is invoked exactly like scripts/dev-bootstrap.mjs does locally
+  # (`npx -y supabase …`), but pinned to the version whose defaults the
+  # committed config.toml captures, and cached by the setup-node npm cache.
+  smoke:
+    name: Supabase smoke (photo → confirm → undo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # First boot pulls the Postgres/Storage/Auth images (~2-4 min), then
+      # applies migrations + seed automatically.
+      - name: Start local Supabase
+        run: npx -y supabase@2.114.0 start
+
+      # Re-apply from a known state so the smoke always runs against the exact
+      # committed schema + seed, matching the local `dev:full` recipe.
+      - name: Apply migrations + seed
+        run: npx -y supabase@2.114.0 db reset
+
+      # `supabase status -o env` prints KEY=value lines — valid dotenv, so it
+      # IS the .env.smoke the smoke test reads (SUPABASE_URL + service key).
+      - name: Write .env.smoke from the running stack
+        run: npx -y supabase@2.114.0 status -o env > .env.smoke
+
+      - name: Smoke (photo → confirm → undo against real stores)
+        run: npm run smoke

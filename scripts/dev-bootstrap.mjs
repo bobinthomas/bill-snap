@@ -3,12 +3,17 @@
  * One-command local dev bootstrap — `npm run dev:full`.
  *
  * Gets a fresh clone to a running full-stack dev environment in one step:
- *   1. initialises local Supabase (creates supabase/config.toml if missing)
+ *   1. initialises local Supabase — uses the COMMITTED supabase/config.toml
+ *      (pinned project_id "bill-snap" + ports, so every clone boots the same
+ *      stack); `supabase init` only runs if you deleted that file
  *   2. starts it (Docker) — first run pulls images, subsequent runs are fast
  *   3. applies supabase/migrations/ + supabase/seed.sql (`supabase db reset`)
  *   4. writes SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY into .dev.vars and
  *      .env.smoke (preserving anything already there, e.g. WhatsApp tokens)
- *   5. runs `wrangler dev` with the demo enabled and waits for /health
+ *   5. optionally runs the smoke test (photo → confirm → undo) against the
+ *      freshly reset Supabase and reports the result — fails the bootstrap
+ *      if the round trip breaks (set RUN_SMOKE=1 to enable)
+ *   6. runs `wrangler dev` with the demo enabled and waits for /health
  *
  * Prerequisites: Node + npm (this project), Docker Desktop running, and
  * internet for the first `npx supabase` + image pulls.
@@ -17,16 +22,19 @@
  * data is reset to a known seeded state — that's the point of a bootstrap.
  *
  * Optional: DEV_PORT=8790 npm run dev:full   (default port 8787)
+ *           RUN_SMOKE=1 npm run dev:full    (also run the smoke test first)
  */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { summarizeSmoke } from "./smoke-summary.mjs";
 
 const ROOT = process.cwd();
 const IS_WIN = process.platform === "win32";
 const NPM = IS_WIN ? "npm.cmd" : "npm";
 const NPMX = IS_WIN ? "npx.cmd" : "npx";
 const DEV_PORT = process.env.DEV_PORT ?? "8787";
+const RUN_SMOKE = process.env.RUN_SMOKE === "1";
 
 /** Run a command synchronously, streaming output; exits the script on failure. */
 function run(cmd, args, { pipe = false } = {}) {
@@ -55,8 +63,10 @@ if (docker.status !== 0) {
 
 // ── 1. supabase init (only when config.toml is missing) ──────────────────────
 if (!existsSync(join(ROOT, "supabase", "config.toml"))) {
-  console.log("\n[bootstrap] no supabase/config.toml — creating it");
+  console.log("\n[bootstrap] no supabase/config.toml — creating it via `supabase init`");
   run(NPMX, ["-y", "supabase", "init"]);
+} else {
+  console.log("[bootstrap] supabase/config.toml found — using the committed pinned config (project bill-snap, ports 54321/54322/…)");
 }
 
 // ── 2. Start ─────────────────────────────────────────────────────────────────
@@ -101,6 +111,23 @@ mergeEnvFile(".env.smoke", [
   ["SUPABASE_URL", url],
   ["SUPABASE_SERVICE_ROLE_KEY", key],
 ]);
+
+// ── 5.5. Optional smoke: photo → confirm → undo against the fresh DB ─────────
+if (RUN_SMOKE) {
+  console.log("\n[bootstrap] running smoke test against the freshly reset Supabase (photo → confirm → undo)");
+  const smoke = spawnSync(NPM, ["run", "smoke"], { stdio: "pipe", shell: IS_WIN });
+  const out = `${smoke.stdout?.toString() ?? ""}${smoke.stderr?.toString() ?? ""}`;
+  process.stdout.write(out);
+  const { ok, line } = summarizeSmoke(smoke.status, out);
+  console.log(`\n${line}`);
+  if (!ok) {
+    console.error(
+      "[bootstrap] smoke failed — the Supabase wiring is suspect. Fix it (see README 'Local Supabase + smoke test'), " +
+        "or rerun without RUN_SMOKE=1 to skip this gate.",
+    );
+    process.exit(1);
+  }
+}
 
 // ── 6. wrangler dev (demo on), and wait for /health ──────────────────────────
 console.log(`\n[bootstrap] starting wrangler dev on :${DEV_PORT} (demo + dashboard enabled)`);
