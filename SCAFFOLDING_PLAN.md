@@ -90,7 +90,7 @@ bill-snap/
 | `WHATSAPP_APP_SECRET` | Worker secret | Signature verification (§7.2) |
 | `WHATSAPP_PHONE_NUMBER_ID` | Worker env | Send API |
 | `WHATSAPP_TOKEN` | Worker secret | Send API |
-| `GEMINI_API_KEY` | Worker secret | Extraction (§5.3) |
+| `AI_MODEL`, `AI_VISION_MODEL` | Worker env (optional) | Extraction fallback (§5.3) — served by the `env.AI` binding, no key |
 | `SUPABASE_URL` | Worker env | DB client |
 | `SUPABASE_SERVICE_ROLE_KEY` | Worker secret | DB writes — never client-side (§7.3) |
 
