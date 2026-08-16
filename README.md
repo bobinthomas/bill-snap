@@ -132,6 +132,20 @@ npm run deploy      # wrangler deploy
 
 ## Deploying
 
+Deploys are automated: the **Deploy** workflow (`.github/workflows/deploy.yml`)
+runs on every push to `main` and on `v*` tags — it re-runs the full CI gates
+(typecheck, tests, the §5.7 eval) and only then `wrangler deploy`s. Configure
+GitHub Actions secrets for the deploy:
+
+- `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (Cloudflare API token with
+  Workers edit permission)
+- the six worker secrets: `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`,
+  `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TOKEN`, `SUPABASE_URL`,
+  `SUPABASE_SERVICE_ROLE_KEY` — set as Cloudflare secrets by the workflow
+  before each deploy
+
+Manual deploy (same steps, no CI gate):
+
 ```bash
 wrangler secret put WHATSAPP_VERIFY_TOKEN
 wrangler secret put WHATSAPP_APP_SECRET
