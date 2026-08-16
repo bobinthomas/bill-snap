@@ -178,13 +178,15 @@ describe.skipIf(!SMOKE.url || !SMOKE.key)("local Supabase smoke (photo → confi
     await route(textEvent("1"), deps);
     expect(send.sent[3]?.text).toContain("✅ Logged:");
 
-    const logged = await drafts.findRecentLogged(phone, new Date());
+    // 60 s window like the rest of the suite — `new Date()` would ask for rows
+    // confirmed after "now", which a just-confirmed row can never satisfy.
+    const logged = await drafts.findRecentLogged(phone, new Date(Date.now() - 60_000));
     expect(logged?.status).toBe("logged");
     expect(logged?.autoLogged).toBe(false);
     expect(logged?.imageUrls[0]).toContain("/bills/");
 
     await route(textEvent("delete"), deps);
     expect(send.sent[4]?.text).toBe(UNDONE_TEXT);
-    expect(await drafts.findRecentLogged(phone, new Date())).toBeNull();
+    expect(await drafts.findRecentLogged(phone, new Date(Date.now() - 60_000))).toBeNull();
   });
 });
