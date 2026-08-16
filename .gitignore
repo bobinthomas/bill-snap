@@ -9,5 +9,9 @@ coverage/
 # Freebuff tooling state (local preview db/logs) — never committed
 .freebuff/
 
+# tesseract language data — downloaded to the npm cache by tesseract.js on
+# first use (default CDN langPath); a local copy is never needed in the repo
+eng.traineddata
+
 # §5.7 golden corpus — bill images are a private mirror, never committed
 /eval/corpus/images/
