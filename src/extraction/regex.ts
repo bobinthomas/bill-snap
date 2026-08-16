@@ -11,7 +11,10 @@ const CATEGORY_ALIASES: Array<{ pattern: RegExp; category: string }> = [
   { pattern: /\bwages?\b/i, category: "wages" },
   { pattern: /\bsalary\b/i, category: "wages" },
   { pattern: /\brent\b/i, category: "rent" },
-  { pattern: /\belectricity|power|water|gas|phone|internet|telstra|energy|utilities?\b/i, category: "utilities" },
+  // NOTE: "telstra" is deliberately NOT here — it is a vendor name, not a
+  // category: including it made the alias strip eat a real vendor (a Telstra
+  // bill OCR'd cleanly lost its vendor to the leftover "Invoice No." line).
+  { pattern: /\belectricity|power|water|gas|phone|internet|energy|utilities?\b/i, category: "utilities" },
   { pattern: /\binventory|stock|supplies|supplier|materials\b/i, category: "inventory" },
   { pattern: /\bmisc\b/i, category: "misc" },
 ];

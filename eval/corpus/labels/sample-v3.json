@@ -1,0 +1,17 @@
+{
+  "id": "sample-v3",
+  "kind": "image",
+  "source": "synthetic: generated rent receipt, GST-exclusive (committed with eval/corpus/synthetic/sample-v3.png)",
+  "orientation": "landscape",
+  "should_log": true,
+  "expected": {
+    "amount": 2200,
+    "date": "2026-08-05",
+    "vendor": "Homebase",
+    "abn": "51 824 753 556",
+    "gst": 220,
+    "gst_basis": "exclusive",
+    "invoice_number": null,
+    "due_date": null
+  }
+}

@@ -18,6 +18,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { env } from "node:process";
+import { createWorker, type Worker } from "tesseract.js";
 import { it } from "vitest";
 import { loadConfig } from "../src/config";
 import { classify, type GateThresholds } from "../src/extraction/gate";
@@ -51,7 +52,9 @@ interface ComboResult extends Combo {
   pass: boolean;
 }
 
-it("sweeps the §5.4 thresholds and finds the operating point", async () => {
+it(
+  "sweeps the §5.4 thresholds and finds the operating point",
+  async () => {
   loadDevVars();
   const config = loadConfig(env);
   const service = createExtractionService(config);
@@ -60,6 +63,9 @@ it("sweeps the §5.4 thresholds and finds the operating point", async () => {
   // One extraction pass per entry; each combo only re-gates and re-pools.
   const entries: Array<{ entry: CorpusEntry; outcome: ExtractionOutcome }> = [];
   const skippedMissingImage: string[] = [];
+  // Image labels are OCR'd in Node (the harness's image branch — see
+  // harness.run.ts for why the vision model can't run in a Node eval).
+  let ocrWorker: Worker | null = null;
   for (const entry of labels) {
     if (entry.kind === "text" && entry.ocr_text !== undefined) {
       // OCR-noise labels replay the local-OCR path (source "ocr").
@@ -72,12 +78,17 @@ it("sweeps the §5.4 thresholds and finds the operating point", async () => {
         skippedMissingImage.push(entry.id);
         continue;
       }
-      entries.push({
-        entry,
-        outcome: await service.run({ imageBytes: image.bytes, imageMimeType: image.mime, gstRegistered: true }),
-      });
+      // Non-raster mirror images (PDF/HEIC) can't be OCR'd in Node — skip.
+      if (!image.mime.startsWith("image/")) {
+        skippedMissingImage.push(entry.id);
+        continue;
+      }
+      ocrWorker ??= await createWorker("eng");
+      const { data } = await ocrWorker.recognize(image.bytes);
+      entries.push({ entry, outcome: await service.run({ ocrText: (data.text ?? "").trim(), gstRegistered: true }) });
     }
   }
+  await ocrWorker?.terminate();
 
   if (entries.length === 0) {
     throw new Error(
@@ -173,7 +184,9 @@ it("sweeps the §5.4 thresholds and finds the operating point", async () => {
       "sweep: no threshold combination clears the §5.7 targets — see eval/reports/sweep-latest.json. The extraction itself is below spec at every gate; fix the prompt/regex before tuning thresholds.",
     );
   }
-});
+  },
+  120_000,
+);
 
 function fmt(value: number | null): string {
   return value === null ? "n/a" : (value * 100).toFixed(1) + "%";

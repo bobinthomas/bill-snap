@@ -1,12 +1,13 @@
 {
-  "generatedAt": "2026-08-16T11:16:44.646Z",
+  "generatedAt": "2026-08-16T12:06:46.864Z",
   "config": {
     "mock": false
   },
   "corpus": {
-    "total": 45,
-    "scored": 21,
+    "total": 48,
+    "scored": 23,
     "skippedMissingImage": [
+      "sample-01",
       "sample-02",
       "sample-03",
       "sample-04",
@@ -33,11 +34,11 @@
       "sample-25"
     ],
     "breakdown": {
-      "inclusive": 15,
-      "exclusive": 11,
+      "inclusive": 17,
+      "exclusive": 12,
       "none": 18,
       "portrait": 15,
-      "landscape": 10,
+      "landscape": 13,
       "hard": 5
     }
   },
@@ -47,7 +48,7 @@
     "vendorHigh": 0.75
   },
   "metrics": {
-    "successRate": 0.9523809523809523,
+    "successRate": 1,
     "successTarget": 0.7,
     "hardCase": {
       "n": 0,
@@ -55,29 +56,29 @@
     },
     "fieldAccuracy": {
       "amount": {
-        "n": 20,
-        "correct": 20,
+        "n": 23,
+        "correct": 23,
         "accuracy": 1
       },
       "date": {
-        "n": 14,
-        "correct": 14,
+        "n": 17,
+        "correct": 17,
         "accuracy": 1
       },
       "vendor": {
-        "n": 18,
-        "correct": 18,
+        "n": 21,
+        "correct": 21,
         "accuracy": 1
       }
     },
     "gating": {
-      "high": 13,
+      "high": 16,
       "partial": 7,
-      "low": 1
+      "low": 0
     },
     "gst": {
-      "n": 9,
-      "correct": 8
+      "n": 11,
+      "correct": 11
     },
     "duplicateGate": {
       "pairs": 3,
@@ -90,7 +91,7 @@
   "criteria": {
     "successRate": {
       "target": 0.7,
-      "value": 0.9523809523809523,
+      "value": 1,
       "pass": true
     },
     "amount": {
@@ -110,70 +111,9 @@
     },
     "gst": {
       "target": 1,
-      "value": 0.8888888888888888,
-      "pass": false
+      "value": 1,
+      "pass": true
     }
   },
-  "failures": [
-    {
-      "id": "sample-01",
-      "mode": "image",
-      "gate": "low",
-      "source": "none",
-      "reasons": [
-        "gated low (none)",
-        "amount incorrect (expected 245, got null)",
-        "date incorrect (expected 2026-08-10, got null)",
-        "vendor incorrect (expected Origin Energy, got null)",
-        "gst incorrect (expected 22.27, got null)",
-        "gst_basis incorrect (expected inclusive, got null)",
-        "abn incorrect (expected 51 824 753 556, got null)",
-        "invoice_number incorrect (expected INV-2847, got null)"
-      ],
-      "actual": {
-        "amount": null,
-        "date": null,
-        "vendor": null,
-        "gst": null,
-        "gst_basis": "none",
-        "abn": null,
-        "invoice_number": null
-      },
-      "extraction": {
-        "amount": {
-          "value": null,
-          "confidence": 0
-        },
-        "date": {
-          "value": null,
-          "confidence": 0
-        },
-        "vendor": {
-          "value": null,
-          "confidence": 0
-        },
-        "abn": {
-          "value": null,
-          "confidence": 0
-        },
-        "gst": {
-          "value": null,
-          "confidence": 0
-        },
-        "gst_basis": "none",
-        "invoice_number": {
-          "value": null,
-          "confidence": 0
-        },
-        "due_date": {
-          "value": null,
-          "confidence": 0
-        },
-        "category_hint": {
-          "value": null,
-          "confidence": 0
-        }
-      }
-    }
-  ]
+  "failures": []
 }

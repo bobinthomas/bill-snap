@@ -111,8 +111,14 @@ npm run sweep       # §5.4 threshold sweep: find operating points that clear
 npm run eval:ocr    # measurement (not a gate): OCR the corpus images with
                     # tesseract and report per-field confidence + guard fires
 OCR_PHOTO=/path/to/bill.jpg npm run eval:ocr   # a single fresh photo instead
-node eval/generate-bill.mjs  # draw the synthetic photo-like corpus images
+node eval/generate-bill.mjs  # draw the synthetic + committed corpus images
 ```
+
+The committed golden corpus includes image labels (`eval/corpus/synthetic/`,
+rendered by `generate-bill.mjs`) that CI scores via the OCR path — so image
+reading is regression-tested on every push, not just the text corpus. The
+LLaVA vision model itself is Worker-runtime-only and stays covered by unit
+tests and the live demo.
 
 ## Checks and scripts
 

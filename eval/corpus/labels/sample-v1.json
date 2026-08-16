@@ -1,0 +1,17 @@
+{
+  "id": "sample-v1",
+  "kind": "image",
+  "source": "synthetic: generated utility bill (committed with eval/corpus/synthetic/sample-v1.png)",
+  "orientation": "landscape",
+  "should_log": true,
+  "expected": {
+    "amount": 267.3,
+    "date": "2026-08-10",
+    "vendor": "Origin Energy",
+    "abn": "51 824 753 556",
+    "gst": 24.3,
+    "gst_basis": "inclusive",
+    "invoice_number": null,
+    "due_date": null
+  }
+}

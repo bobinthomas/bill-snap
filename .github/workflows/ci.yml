@@ -26,9 +26,9 @@ jobs:
         run: npm test
 
       # §5.7 regression gate: replay the committed golden corpus through the
-      # real pipeline. Image labels need the private mirror (gitignored), so
-      # they are skipped here; the text/ocr_text corpus is fully scored and a
-      # regression fails the run.
+      # real pipeline. Committed synthetic images (eval/corpus/synthetic/) are
+      # OCR-scored in Node; only mirror-only labels (eval/corpus/images/,
+      # gitignored) are skipped. A regression fails the run.
       - name: Eval harness (§5.7)
         run: npm run eval
 

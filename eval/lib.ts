@@ -19,6 +19,7 @@ import type { BillExtraction, GatingLevel } from "../src/types";
 export const CORPUS_DIR = join(process.cwd(), "eval", "corpus");
 export const LABELS_DIR = join(CORPUS_DIR, "labels");
 export const IMAGES_DIR = join(CORPUS_DIR, "images");
+export const SYNTHETIC_DIR = join(CORPUS_DIR, "synthetic");
 export const REPORT_DIR = join(process.cwd(), "eval", "reports");
 
 /**
@@ -113,10 +114,14 @@ export function loadLabels(): CorpusEntry[] {
   });
 }
 
+/** Locate an image for a label: the private mirror first, then the committed
+ *  `synthetic/` renders (so CI can score the image path without the mirror). */
 export function findImage(id: string): { bytes: Uint8Array; mime: string } | null {
-  for (const { ext, mime } of IMAGE_EXTS) {
-    const path = join(IMAGES_DIR, `${id}.${ext}`);
-    if (existsSync(path)) return { bytes: readFileSync(path), mime };
+  for (const dir of [IMAGES_DIR, SYNTHETIC_DIR]) {
+    for (const { ext, mime } of IMAGE_EXTS) {
+      const path = join(dir, `${id}.${ext}`);
+      if (existsSync(path)) return { bytes: readFileSync(path), mime };
+    }
   }
   return null;
 }

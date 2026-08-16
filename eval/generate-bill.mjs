@@ -19,8 +19,11 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createCanvas } from "@napi-rs/canvas";
 
-const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "corpus", "images");
+const ROOT = dirname(fileURLToPath(import.meta.url));
+const OUT_DIR = join(ROOT, "corpus", "images");
+const SYNTHETIC_DIR = join(ROOT, "corpus", "synthetic");
 mkdirSync(OUT_DIR, { recursive: true });
+mkdirSync(SYNTHETIC_DIR, { recursive: true });
 
 /** Draw the exact demo sample bill on a fresh canvas. */
 function drawBill({ date = "10/08/2026" } = {}) {
@@ -76,4 +79,75 @@ save(drawBill({ date: "03-08-2026" }), "sample-dash-date.png");
   save(c, "sample-photo.png");
 }
 
-console.log("done — 3 bill images in eval/corpus/images/ (gitignored).");
+// ── Committed synthetic bills ────────────────────────────────────────────────
+// The three renders above are MEASUREMENT images (gitignored mirror). These are
+// COMMITTED scoring labels: large, high-contrast, OCR-safe bills that tesseract
+// reads deterministically, so CI scores the image path (OCR → regex) without
+// the private mirror. Labels live at eval/corpus/labels/sample-v*.json and the
+// ground truth is exactly what is drawn here — keep them in lockstep.
+//
+// OCR-safety rules (learned the hard way): big bold fonts, dates without the
+// 6/8 confusable shape at small sizes, and the words "GST"/"tax" present only
+// on inclusive/exclusive bills (detectGstBasis treats any GST mention as
+// exclusive unless "inclusive" is spelled out).
+function drawSyntheticBill(lines, { width = 1000, height = 640, leading = 64, base = 44 } = {}) {
+  const c = createCanvas(width, height);
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.fillStyle = "#111111";
+  lines.forEach((line, i) => {
+    const [text, bold] = Array.isArray(line) ? line : [line, false];
+    ctx.font = `${bold ? "bold " : ""}${base}px sans-serif`;
+    ctx.fillText(text, 48, 80 + i * leading);
+  });
+  return c;
+}
+
+const syntheticBills = [
+  {
+    name: "sample-v1.png",
+    bill: drawSyntheticBill([
+      ["Origin Energy", true],
+      "ABN: 51 824 753 556",
+      "Electricity account",
+      "Invoice No. INV-2847",
+      "Date: 10/08/2026",
+      "Subtotal: $243.00",
+      "GST: $24.30",
+      "GST INCLUSIVE",
+      ["Total: $267.30", true],
+    ]),
+  },
+  {
+    name: "sample-v2.png",
+    bill: drawSyntheticBill([
+      ["Telstra", true],
+      "Phone bill",
+      "Invoice No. INV-77123",
+      "Date: 14/08/2026",
+      "GST INCLUSIVE",
+      ["Amount Due: $77.45", true],
+      "ABN: 51 824 753 556",
+    ]),
+  },
+  {
+    name: "sample-v3.png",
+    bill: drawSyntheticBill([
+      ["Homebase", true],
+      "ABN: 51 824 753 556",
+      "Rent payment",
+      "Date: 05/08/2026",
+      "GST: $200.00",
+      "GST EXCLUSIVE",
+      ["Total: $2200.00", true],
+    ]),
+  },
+];
+
+for (const { name, bill } of syntheticBills) {
+  writeFileSync(join(SYNTHETIC_DIR, name), bill.toBuffer("image/png"));
+  console.log(`wrote ${join(SYNTHETIC_DIR, name)} (committed)`);
+}
+
+console.log("done — 3 measurement images in eval/corpus/images/ (gitignored) + 3 committed synthetic bills in eval/corpus/synthetic/.");

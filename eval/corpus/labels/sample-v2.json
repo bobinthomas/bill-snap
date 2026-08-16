@@ -1,0 +1,17 @@
+{
+  "id": "sample-v2",
+  "kind": "image",
+  "source": "synthetic: generated telecom bill (committed with eval/corpus/synthetic/sample-v2.png)",
+  "orientation": "landscape",
+  "should_log": true,
+  "expected": {
+    "amount": 77.45,
+    "date": "2026-08-14",
+    "vendor": "Telstra",
+    "abn": "51 824 753 556",
+    "gst": 7.04,
+    "gst_basis": "inclusive",
+    "invoice_number": null,
+    "due_date": null
+  }
+}

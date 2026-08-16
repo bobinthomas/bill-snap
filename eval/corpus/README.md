@@ -11,6 +11,7 @@ permission or high-fidelity mockups; the images sit in a private mirror.
 ```
 eval/corpus/
 ├── labels/*.json     # ground truth — committed, no user data
+├── synthetic/        # committed OCR-safe bill renders (sample-v*) — CI-scored
 ├── images/           # bill image files — GITIGNORED (private mirror)
 └── README.md
 ```
@@ -21,9 +22,17 @@ eval/corpus/
   Optional metadata: `orientation` (`portrait`/`landscape`) and `hard: true` for
   deliberately hard cases — the harness reports composition and the hard-case
   success rate (§5.7's quick-iteration subset).
-- `images/<id>.{jpg,jpeg,png,webp,heic,pdf}` — the bill photo. `eval/harness.run.ts`
-  looks up `images/<label-id>.<ext>`; entries without an image are reported as
-  skipped, never scored.
+- `images/<id>.{jpg,jpeg,png,webp,heic,pdf}` — the bill photo, looked up first.
+  `synthetic/<id>.png` (committed) is the fallback, so CI can score image
+  labels without the private mirror. Entries with no image at all — or a
+  non-raster one (PDF/HEIC, which tesseract can't read in Node) — are reported
+  as skipped, never scored.
+- **Image labels are scored via the OCR path**: `eval/harness.run.ts` OCRs the
+  bytes with tesseract.js in Node and feeds the text through the pipeline as
+  source `ocr` — the same reading path the browser demo uses. The LLaVA vision
+  model cannot run in a Node eval (its `env.AI` binding is Worker-runtime-only),
+  so it stays covered by unit tests (`tests/extraction.test.ts`) and the live
+  demo, not the harness.
 - `kind: "text"` labels carry a `text` field (e.g. `wages 500 rajesh`) instead —
   they replay the §5.3 regex path and always run without the private mirror.
 - `kind: "text"` labels may carry `ocr_text` instead — the OCR text read off an
@@ -118,6 +127,25 @@ there is no image-API measurement like the old Gemini harness. The dev mock
 parse. Real-binding behaviour is verified in `tests/extraction.test.ts` with a
 stubbed `env.AI` shape (see the pipeline tests).
 
+## Committed synthetic bills (`sample-v1`…`sample-v3`)
+
+`node eval/generate-bill.mjs` also draws three OCR-safe bills into
+`eval/corpus/synthetic/` — utilities (GST-inclusive), telecom (GST-inclusive)
+and rent (GST-exclusive) — with labels in `labels/sample-v*.json`. They are the
+only image labels CI can score, so they must stay deterministic:
+
+- **OCR-safety rules** (learned the hard way): large bold fonts; amounts and
+  dates avoiding the digits tesseract confuses at small sizes (the 9→3
+  misread that turned `$99.95` into `$93.95`); and the words `GST`/`tax` only
+  on inclusive/exclusive bills (`detectGstBasis` treats any GST mention as
+  exclusive unless "inclusive" is spelled out).
+- **Ground truth = what is drawn.** The label `expected` values must match the
+  generator exactly — regenerate and re-run `npm run eval` when you touch
+  either side.
+- Vendor names must not collide with category aliases: a vendor named
+  "Telstra" used to be eaten by the utilities alias (it's a vendor, not a
+  category — the alias list no longer contains it).
+
 ## Adding a bill (e.g. from a support ticket — §8.2 invite)
 
 1. Drop the image at `images/<id>.jpg` (any supported extension).
@@ -147,7 +175,9 @@ stubbed `env.AI` shape (see the pipeline tests).
 
 ## Rules
 
-- Images never enter this repo — the mirror lives in a private bucket and is
-  pulled by hand per machine.
+- Real bill images never enter this repo — the mirror lives in a private
+  bucket and is pulled by hand per machine. The only images committed are the
+  synthetic renders in `synthetic/` (generated, no user data).
 - Labels are reviewed like code: a wrong ground-truth value poisons every
-  regression run.
+  regression run. For synthetic bills the generator and the label must stay in
+  lockstep.
