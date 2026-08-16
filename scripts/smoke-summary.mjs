@@ -12,7 +12,9 @@
  */
 
 export function summarizeSmoke(status, output) {
-  const out = String(output ?? "");
+  // vitest emits ANSI colour codes even through a pipe (seen on GitHub
+  // runners), which would break the line anchors below — strip them first.
+  const out = String(output ?? "").replace(/\x1b\[[0-9;]*m/g, "");
   // Scope counts to the `Tests` line so "Test Files … passed" can't match.
   const testsLine = /^\s*Tests\s+(.*)$/m.exec(out);
   const line = testsLine ? testsLine[1] : "";
