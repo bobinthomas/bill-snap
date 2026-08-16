@@ -80,12 +80,18 @@ run(NPMX, ["-y", "supabase", "db", "reset"]);
 // ── 4. Read the local URL + service-role key ─────────────────────────────────
 const status = run(NPMX, ["-y", "supabase", "status", "-o", "env"], { pipe: true });
 const envOut = status.stdout.toString();
-const pick = (key) => {
-  const m = new RegExp(`^${key}=(.*)$`, "m").exec(envOut);
-  return m ? m[1].trim() : null;
+// CLI ≥2.114 renamed the env-output keys (API_URL / SERVICE_ROLE_KEY); older
+// CLIs printed SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY. Accept either so the
+// bootstrap works against `npx -y supabase` (latest) and pinned versions.
+const pick = (...keys) => {
+  for (const key of keys) {
+    const m = new RegExp(`^${key}=(.*)$`, "m").exec(envOut);
+    if (m) return m[1].trim();
+  }
+  return null;
 };
-const url = pick("SUPABASE_URL");
-const key = pick("SUPABASE_SERVICE_ROLE_KEY");
+const url = pick("SUPABASE_URL", "API_URL");
+const key = pick("SUPABASE_SERVICE_ROLE_KEY", "SERVICE_ROLE_KEY");
 if (!url || !key) {
   console.error("[bootstrap] could not read SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY from `supabase status -o env`");
   process.exit(1);

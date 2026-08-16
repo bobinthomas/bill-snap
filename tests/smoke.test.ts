@@ -40,9 +40,15 @@ function readSmokeEnv(): Record<string, string> {
 }
 
 const DOTENV = readSmokeEnv();
+// Accept both the legacy key names (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY)
+// and the CLI ≥2.114 `status -o env` names (API_URL / SERVICE_ROLE_KEY).
 const SMOKE = {
-  url: process.env.SUPABASE_URL ?? DOTENV.SUPABASE_URL ?? "",
-  key: process.env.SUPABASE_SERVICE_ROLE_KEY ?? DOTENV.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  url: process.env.SUPABASE_URL ?? DOTENV.SUPABASE_URL ?? DOTENV.API_URL ?? "",
+  key:
+    process.env.SUPABASE_SERVICE_ROLE_KEY ??
+    DOTENV.SUPABASE_SERVICE_ROLE_KEY ??
+    DOTENV.SERVICE_ROLE_KEY ??
+    "",
 };
 
 if (!SMOKE.url || !SMOKE.key) {

@@ -105,5 +105,14 @@ jobs:
       - name: Write .env.smoke from the running stack
         run: npx -y supabase@2.114.0 status -o env > .env.smoke
 
+      # Fail loudly if the suite silently skipped (env wiring broke) — a green
+      # run must mean the round trip actually executed. The suite prints a
+      # `[smoke] … Skipping` warning only when SUPABASE_URL/keys are missing.
       - name: Smoke (photo → confirm → undo against real stores)
-        run: npm run smoke
+        run: |
+          npm run smoke 2>&1 | tee smoke.out
+          if grep -q "\[smoke\]" smoke.out; then
+            echo "::error::smoke suite SKIPPED — SUPABASE_URL/keys not wired from status -o env"
+            grep "\[smoke\]" smoke.out
+            exit 1
+          fi
