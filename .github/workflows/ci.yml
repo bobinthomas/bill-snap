@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    name: typecheck + tests + eval
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      # §5.7 regression gate: replay the committed golden corpus through the
+      # real pipeline. Image labels need the private mirror (gitignored), so
+      # they are skipped here; the text/ocr_text corpus is fully scored and a
+      # regression fails the run.
+      - name: Eval harness (§5.7)
+        run: npm run eval
+
+      - name: Upload eval baseline report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: eval/reports/latest.json
+          if-no-files-found: ignore
