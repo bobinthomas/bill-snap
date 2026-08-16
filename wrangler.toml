@@ -1,0 +1,14 @@
+# BillSnap Worker config (SCAFFOLDING_PLAN.md §5)
+name = "bill-snap"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+# Workers AI binding (§5.3 fallback parser) — available natively as env.AI,
+# no API key, no external HTTP calls.
+[ai]
+binding = "AI"
+
+# Cron for the nudge/expiry sweep (§5.6/§6.2). Dev: `wrangler dev --test-scheduled`
+# fires the scheduled handler when the dev URL is hit.
+[triggers]
+crons = ["*/2 * * * *"]

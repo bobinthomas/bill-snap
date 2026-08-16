@@ -1,0 +1,29 @@
+{
+  "name": "bill-snap",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke": "vitest run tests/smoke.test.ts",
+    "eval": "vitest run --config vitest.eval.config.ts eval/harness.run.ts",
+    "sweep": "vitest run --config vitest.eval.config.ts eval/sweep.run.ts",
+    "eval:ocr": "vitest run --config vitest.eval.config.ts eval/ocr.run.ts"
+  },
+  "dependencies": {
+    "hono": "^4.13.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260815.1",
+    "@napi-rs/canvas": "^1.0.6",
+    "@types/node": "^26.2.0",
+    "tesseract.js": "^7.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.123.0"
+  }
+}

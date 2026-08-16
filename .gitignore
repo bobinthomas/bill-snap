@@ -1,0 +1,13 @@
+node_modules/
+.wrangler/
+.dev.vars
+.env.smoke
+dist/
+coverage/
+*.log
+
+# Freebuff tooling state (local preview db/logs) — never committed
+.freebuff/
+
+# §5.7 golden corpus — bill images are a private mirror, never committed
+/eval/corpus/images/
