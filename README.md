@@ -57,6 +57,25 @@ Without `--var DEV_DEMO:true` the `/dev/*` routes 404. The demo runs fully
 in-memory when `SUPABASE_URL` is unset, so you can try the whole flow with no
 infrastructure at all.
 
+### Full stack in one command (`npm run dev:full`)
+
+Want the real Supabase stores, storage bucket, and the smoke-test wiring too?
+`npm run dev:full` (requires **Docker Desktop running** and the Supabase CLI,
+which `npx` fetches on first use) does it all in one step:
+
+1. creates `supabase/config.toml` if missing (`supabase init`)
+2. starts local Supabase (`supabase start`) — first run pulls Docker images
+3. applies `supabase/migrations/` + `supabase/seed.sql` (`supabase db reset`;
+   this resets local DB data to the seeded state each run)
+4. writes `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` into `.dev.vars` and
+   `.env.smoke`, preserving any WhatsApp tokens already there
+5. runs `wrangler dev` with the demo enabled and waits for `/health`
+
+The demo then runs against real Supabase (badge shows `persistence: supabase`),
+and `npm run smoke` works because `.env.smoke` is already populated. Use a
+different worker port with `DEV_PORT=8790 npm run dev:full`. If you only want
+the demo without any infrastructure, keep using the in-memory path above.
+
 ### The demo console
 
 Upload a bill photo (or use the sample bill), and watch the pipeline: local
@@ -127,6 +146,7 @@ npm run typecheck   # tsc, both app and test configs
 npm test            # vitest — unit + flow tests (smoke auto-skipped)
 npm run smoke       # Supabase round trip (needs local Supabase, see above)
 npm run dev         # wrangler dev (add -- --var DEV_DEMO:true for the demo)
+npm run dev:full    # one-command bootstrap: Supabase up + seed + wrangler dev
 npm run deploy      # wrangler deploy
 ```
 
