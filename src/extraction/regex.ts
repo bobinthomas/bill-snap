@@ -197,6 +197,23 @@ function findAmount(text: string): number | null {
       if (!candidate.includes(".") && candidate.replace(/[,\d]/g, "").length === 0 && /^\d$/.test(candidate)) {
         continue;
       }
+      // A bare number right after "(Place) -" is a postal/PIN code from an
+      // address line ("Baradiya Village - Dwarka (Gujarat) - 361335"), never
+      // the amount owed — verified live: OCR reduced a receipt to near-total
+      // garbage and this pincode was the only clean digit run left, so it won
+      // the document-order fallback as "$361,335.00".
+      const context = dateSafe.slice(Math.max(0, m.index - 12), m.index);
+      if (/\)\s*-\s*$/.test(context)) {
+        continue;
+      }
+      // A bare number right after a "No"/"Number" label is a reference —
+      // bill/invoice/token/order number ("Bill No: 6424", "Token No: 45") —
+      // never the amount owed. Same garbage-OCR receipt: with the pincode
+      // above skipped, the bill number was the next bare digit run in
+      // document order and would otherwise win instead.
+      if (/\b(?:no|number)\.?:?\s*$/i.test(context)) {
+        continue;
+      }
     }
     const n = parseAmount(candidate);
     if (n !== null) return n;

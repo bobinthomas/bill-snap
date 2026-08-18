@@ -394,6 +394,20 @@ describe("extractFromText (regex fallback, §5.3)", () => {
     expect(extractFromText("INR 1,250.00").amount.value).toBe(1250);
   });
 
+  it("does not read a postal code or reference number as the amount", () => {
+    // Real VRAJ RESTAURANT receipt: garbage OCR left only noise plus the
+    // address pincode ("(Gujarat) - 361335") and reference numbers ("Bill
+    // No: 6424", "Token No: 45") intact — none of them may win the
+    // bare-number fallback in place of the real total ($1,249.00, never OCR'd).
+    const out = extractFromText(
+      "Ey ral RO 3h ry SDS TS a er ae RAV tg Le AY FUSES h\n" +
+        "Baradiya Village - Dwarka (Gujarat) - 361335\n" +
+        "Token No: 45\n" +
+        "Bill No: 6424",
+    );
+    expect(out.amount.value).toBeNull();
+  });
+
   it("does not read a single bare digit (Component < 1) as the amount", () => {
     // Real GUJARAT FREIGHT TOOLS invoice: OCR mangled the numeric total row, so
     // the first bare candidate in document order was "1" from "Component < 1"
