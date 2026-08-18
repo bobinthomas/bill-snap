@@ -1,19 +1,18 @@
 name: Bootstrap E2E
 
-# Proves `npm run dev:full` end to end on a real Docker-enabled runner:
-# Docker guard → committed pinned supabase/config.toml → `supabase start` →
-# migrations + seed → env merge into .dev.vars/.env.smoke → wrangler dev →
-# the ✅ Full stack banner — then `npm run dev:down` proves the teardown and
-# lets the bootstrap exit 0. This is the only job that exercises the actual
-# bootstrap script (scripts/dev-bootstrap.mjs) with real Docker.
+# Proves `npm run dev:full` end to end on a fresh runner with no Docker and
+# no Cloudflare account: deps install → D1 migrations applied to the local
+# state → wrangler dev → the ✅ Full stack banner — then `npm run dev:down`
+# proves the teardown and lets the bootstrap exit 0. This is the only job
+# that exercises the actual bootstrap script (scripts/dev-bootstrap.mjs).
 #
 # Manual runs (workflow_dispatch) default to the FULL proof: the `run_smoke`
 # input enables the bootstrap's RUN_SMOKE=1 gate, which runs the photo →
-# confirm → undo round trip against the freshly reset Supabase right after
-# the env merge — and aborts the whole bootstrap if it fails — so one run
-# proves dev:full + the round trip + the teardown together. Push/tag runs
-# leave it off (inputs is empty there; the separate smoke job in ci.yml
-# already covers every push).
+# confirm → undo round trip against the D1 stores right after the migration
+# apply — and aborts the whole bootstrap if it fails — so one run proves
+# dev:full + the round trip + the teardown together. Push/tag runs leave it
+# off (inputs is empty there; the separate smoke job in ci.yml already covers
+# every push).
 on:
   workflow_dispatch:
     inputs:
@@ -29,7 +28,7 @@ jobs:
   bootstrap:
     name: dev:full → banner → dev:down
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
     env:
       # Dispatch input → the bootstrap's RUN_SMOKE=1 gate. Evaluates to '' on
       # push/tag runs (no inputs), '1' on manual runs unless unchecked.
@@ -45,87 +44,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Supabase image cache: `supabase start` pulls the whole image set
-      # (~2-4 min) — once per image set, not per run. The key tracks the CLI
-      # version (the CLI decides which image tags to pull) plus the committed
-      # config.toml (which can change the set, e.g. [db] image or services).
-      # On a hit the images are `docker load`ed below, so `supabase start`
-      # skips the pull entirely; after a successful start the set is
-      # re-`docker save`d. The ci.yml smoke job uses the same key format, so
-      # both jobs share one cache entry (and stop contending on Docker rate
-      # limits) while the unpinned bootstrap CLI resolves to the same version
-      # as the smoke job's pinned 2.114.0 — and a version drift naturally
-      # splits into its own correctly-keyed entry.
-      - name: Get Supabase CLI version
-        id: cli-ver
-        run: echo "version=$(npx -y supabase --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Supabase images
-        id: supabase-cache
-        uses: actions/cache@v4
-        with:
-          path: supabase-images.tar.gz
-          key: supabase-images-${{ steps.cli-ver.outputs.version }}-${{ hashFiles('supabase/config.toml') }}
-
-      - name: Load cached Supabase images
-        if: steps.supabase-cache.outputs.cache-hit == 'true'
-        run: docker load < supabase-images.tar.gz
-
-      # Optional: authenticating to Docker Hub raises the anonymous pull limit
-      # (100/6h per shared runner IP) and avoids the `toomanyrequests` flakes
-      # that hit parallel image pulls. Set DOCKERHUB_USERNAME/DOCKERHUB_TOKEN
-      # repo secrets to enable. (Secrets can't be referenced in `if:`, so they
-      # are copied into env vars and tested there.)
-      - name: Log in to Docker Hub
-        if: ${{ env.DH_USER != '' && env.DH_TOKEN != '' }}
-        env:
-          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
-          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       # The bootstrap never exits on its own — it blocks on the wrangler dev
       # child — so run it in the background and drive it: wait for the banner
-      # in its log, assert the endpoints and env wiring, then `dev:down` to
-      # stop the stack (which also makes the bootstrap exit 0). CACHE_HIT is
-      # passed through so the image save below is skipped on hits (the cache
-      # post-step would no-op on an exact key match anyway).
-      #
-      # Up to 3 attempts: the first `supabase start` on a fresh runner pulls
-      # the image set and can hit Docker rate limits (toomanyrequests), but
-      # pulled layers persist on the runner, so a retry continues from where
-      # the limit struck. Non-rate-limit failures fail immediately.
+      # in its log, assert the endpoints, then `dev:down` to stop the stack
+      # (which also makes the bootstrap exit 0). No retries needed: there is
+      # no image pull to hit Docker rate limits anymore.
       - name: Run dev:full end to end
         env:
-          CACHE_HIT: ${{ steps.supabase-cache.outputs.cache-hit }}
+          RUN_SMOKE: ${{ env.RUN_SMOKE }}
         run: |
           set -euo pipefail
           echo "RUN_SMOKE variant: ${RUN_SMOKE:-off}"
+          DEV_PORT=8795 npm run dev:full > full.log 2>&1 &
+          BOOT_PID=$!
           found=""
-          for attempt in 1 2 3; do
-            echo "=== attempt $attempt ==="
-            DEV_PORT=8795 npm run dev:full > full.log 2>&1 &
-            BOOT_PID=$!
-            for i in $(seq 1 120); do
-              if grep -q "Full stack is up" full.log 2>/dev/null; then found=1; break; fi
-              if ! kill -0 "$BOOT_PID" 2>/dev/null; then break; fi
-              sleep 5
-            done
-            if [ -n "$found" ]; then break; fi
-            if grep -qi "toomanyrequests\|rate exceeded" full.log; then
-              echo "attempt $attempt hit Docker pull rate limiting — retrying (pulled layers persist)"
-            else
-              echo "::error::dev:full failed without rate limiting — full log follows"
-              cat full.log
-              exit 1
-            fi
-            [ "$attempt" = "3" ] && break
-            sleep 20
+          for i in $(seq 1 90); do
+            if grep -q "Full stack is up" full.log 2>/dev/null; then found=1; break; fi
+            if ! kill -0 "$BOOT_PID" 2>/dev/null; then break; fi
+            sleep 5
           done
           if [ -z "$found" ]; then
-            echo "::error::dev:full did not reach the banner after 3 attempts — full log follows"
+            echo "::error::dev:full did not reach the banner — full log follows"
             cat full.log
             exit 1
           fi
@@ -133,28 +72,11 @@ jobs:
           echo "=== ✅ Full stack banner ==="
           grep -A9 "Full stack is up" full.log | head -10
 
-          # Cache the pulled image set for the next run (the actions/cache
-          # post-step uploads this at job end). Skipped on a cache hit — the
-          # images came from the cache, and the post-step no-ops on an exact
-          # key match anyway. Filtered to supabase images and `<none>` tags,
-          # which docker save can't address.
-          if [ "$CACHE_HIT" != "true" ]; then
-            IMGS=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -i supabase | grep -v '<none>' | tr '\n' ' ')
-            if [ -n "$IMGS" ]; then
-              docker save $IMGS | gzip > supabase-images.tar.gz
-              echo "cached supabase image set ($(du -h supabase-images.tar.gz | cut -f1)) for the next run"
-            fi
-          else
-            echo "cache hit — images already cached, skipping re-save"
-          fi
-
-          echo "=== asserting endpoints + env wiring ==="
+          echo "=== asserting endpoints ==="
           curl -sf http://127.0.0.1:8795/health >/dev/null && echo "PASS: /health"
           curl -sf http://127.0.0.1:8795/dev/demo >/dev/null && echo "PASS: /dev/demo"
           curl -sf http://127.0.0.1:8795/dev/dashboard >/dev/null && echo "PASS: /dev/dashboard"
-          grep -q "SUPABASE_URL=http://127.0.0.1:54321" .dev.vars && echo "PASS: SUPABASE_URL in .dev.vars"
-          grep -q "^SUPABASE_SERVICE_ROLE_KEY=eyJ" .dev.vars && echo "PASS: service key in .dev.vars"
-          grep -q "SUPABASE_URL=http://127.0.0.1:54321" .env.smoke && echo "PASS: .env.smoke populated"
+          curl -sf http://127.0.0.1:8795/app >/dev/null && echo "PASS: /app"
 
           # RUN_SMOKE variant: the bootstrap's gate ran the round trip before
           # wrangler (and would have aborted the bootstrap on failure), so by

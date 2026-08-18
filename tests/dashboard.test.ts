@@ -7,7 +7,7 @@ import { createApp } from "../src/index";
 const ENV = { DEV_DEMO: "true" };
 
 interface DashboardJson {
-  persistence: "supabase" | "in-memory";
+  persistence: "d1" | "in-memory";
   totals: { count: number; amount: number; gst: number; autoLogged: number; manual: number };
   categories: Array<{ category: string; count: number; amount: number }>;
   vendors: Array<{ vendor: string; count: number; amount: number }>;
@@ -196,7 +196,7 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
     expect([bytes[0], bytes[1], bytes[2]]).toEqual([0xef, 0xbb, 0xbf]);
     const csv = new TextDecoder().decode(bytes);
     const lines = csv.trimEnd().split("\r\n");
-    expect(lines[0]).toBe("Logged,Bill date,Vendor,Category,Amount,GST,GST basis,Invoice,ABN,Source,Gate");
+    expect(lines[0]).toBe("Logged,Bill date,Vendor,Vendor resolved to,Category,Amount,GST,GST basis,Invoice,ABN,Source,Gate");
     expect(lines).toHaveLength(2); // header + the single July bill
     expect(lines[1]).toContain("2026-07-15");
     expect(lines[1]).toContain("july-book");
@@ -213,6 +213,7 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
       confirmedAt: "2026-08-16T03:00:00.000Z",
       date: null,
       vendor: 'Acme, "Supa" Co',
+      vendorResolvedTo: null,
       category: "misc",
       amount: 12.5,
       gst: null,

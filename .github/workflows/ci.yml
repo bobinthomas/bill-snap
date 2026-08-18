@@ -42,19 +42,16 @@ jobs:
           path: eval/reports/latest.json
           if-no-files-found: ignore
 
-  # Real-stores smoke (photo → confirm → undo) against a freshly booted local
-  # Supabase. This is the one gate that exercises the actual migrations
-  # (supabase/migrations/) + seed (supabase/seed.sql) and the REST/Storage
-  # stores, so a schema or store regression fails CI — and, via workflow_call,
-  # blocks deploys. Uses the committed pinned supabase/config.toml.
-  #
-  # The CLI is invoked exactly like scripts/dev-bootstrap.mjs does locally
-  # (`npx -y supabase …`), but pinned to the version whose defaults the
-  # committed config.toml captures, and cached by the setup-node npm cache.
+  # Real-stores smoke (photo → confirm → undo) through the production store
+  # implementations — the D1 stores over a node:sqlite shim running the real
+  # migrations/0001_schema.sql, and the R2 storage over a fake bucket. This is
+  # the one gate that exercises the actual webhook router end to end against
+  # real SQL semantics (foreign keys, partial-index idempotency, RETURNING),
+  # so a store or schema regression fails CI — and, via workflow_call, blocks
+  # deploys. No Docker, no Cloudflare account, no secrets: it always runs.
   smoke:
-    name: Supabase smoke (photo → confirm → undo)
+    name: D1 smoke (photo → confirm → undo)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -66,92 +63,5 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Supabase image cache, same key scheme as the Bootstrap E2E job so both
-      # jobs share ONE cache entry. On a hit the images are `docker load`ed
-      # below and `supabase start` skips the ~2-4 min pull; after a successful
-      # start the set is re-`docker save`d. This also stops the two jobs from
-      # contending on Docker Hub rate limits when they run in parallel.
-      - name: Get Supabase CLI version
-        id: cli-ver
-        run: echo "version=$(npx -y supabase@2.114.0 --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Supabase images
-        id: supabase-cache
-        uses: actions/cache@v4
-        with:
-          path: supabase-images.tar.gz
-          key: supabase-images-${{ steps.cli-ver.outputs.version }}-${{ hashFiles('supabase/config.toml') }}
-
-      - name: Load cached Supabase images
-        if: steps.supabase-cache.outputs.cache-hit == 'true'
-        run: docker load < supabase-images.tar.gz
-
-      # Optional: authenticating to Docker Hub raises the anonymous pull limit
-      # (100/6h per shared runner IP) and avoids `toomanyrequests` flakes when
-      # jobs pull the Supabase images in parallel. Set DOCKERHUB_USERNAME /
-      # DOCKERHUB_TOKEN repo secrets to enable. (Secrets can't be referenced
-      # in `if:`, so they are copied into env vars and tested there.)
-      - name: Log in to Docker Hub
-        if: ${{ env.DH_USER != '' && env.DH_TOKEN != '' }}
-        env:
-          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
-          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      # First boot pulls the Postgres/Storage/Auth images (~2-4 min), then
-      # applies migrations + seed automatically. Retry the pull-heavy start up
-      # to 3 times: fresh runners share egress IPs, so anonymous pulls can hit
-      # Docker rate limits; pulled layers persist between attempts. With a
-      # cache hit the images are already loaded and this step is near-instant.
-      - name: Start local Supabase
-        run: |
-          for attempt in 1 2 3; do
-            echo "attempt $attempt: supabase start"
-            if npx -y supabase@2.114.0 start; then exit 0; fi
-            echo "supabase start failed (attempt $attempt)"
-            sleep 20
-          done
-          exit 1
-
-      # Cache the pulled image set for the next run (actions/cache uploads at
-      # job end). Skipped on a cache hit — the images came from the cache, and
-      # the post-step no-ops on an exact key match anyway. Filtered to supabase
-      # images and `<none>` tags, which docker save can't address. Uses the
-      # pinned CLI version so the key matches the Bootstrap E2E job's entry.
-      - name: Cache Supabase images
-        if: steps.supabase-cache.outputs.cache-hit != 'true'
-        run: |
-          IMGS=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -i supabase | grep -v '<none>' | tr '\n' ' ')
-          if [ -n "$IMGS" ]; then
-            docker save $IMGS | gzip > supabase-images.tar.gz
-            echo "cached supabase image set ($(du -h supabase-images.tar.gz | cut -f1))"
-          else
-            echo "no supabase images found to cache"
-          fi
-
-      # Re-apply from a known state so the smoke always runs against the exact
-      # committed schema + seed, matching the local `dev:full` recipe.
-      - name: Apply migrations + seed
-        run: npx -y supabase@2.114.0 db reset
-
-      # `supabase status -o env` prints KEY=value lines — valid dotenv, so it
-      # IS the .env.smoke the smoke test reads (SUPABASE_URL + service key).
-      - name: Write .env.smoke from the running stack
-        run: npx -y supabase@2.114.0 status -o env > .env.smoke
-
-      # Fail loudly if the suite skipped (env wiring broke) or failed (a real
-      # store/schema regression) — a green run must mean the round trip
-      # actually executed and passed. pipefail matters: without it the `tee`
-      # in the pipeline would swallow the suite's non-zero exit.
-      - name: Smoke (photo → confirm → undo against real stores)
-        run: |
-          set -euo pipefail
-          npm run smoke 2>&1 | tee smoke.out
-          if grep -q "\[smoke\]" smoke.out; then
-            echo "::error::smoke suite SKIPPED — SUPABASE_URL/keys not wired from status -o env"
-            grep "\[smoke\]" smoke.out
-            exit 1
-          fi
+      - name: Smoke (photo → confirm → undo against D1 stores)
+        run: npm run smoke

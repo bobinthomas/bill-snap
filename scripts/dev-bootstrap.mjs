@@ -2,30 +2,26 @@
 /**
  * One-command local dev bootstrap — `npm run dev:full`.
  *
- * Gets a fresh clone to a running full-stack dev environment in one step:
- *   1. initialises local Supabase — uses the COMMITTED supabase/config.toml
- *      (pinned project_id "bill-snap" + ports, so every clone boots the same
- *      stack); `supabase init` only runs if you deleted that file
- *   2. starts it (Docker) — first run pulls images, subsequent runs are fast
- *   3. applies supabase/migrations/ + supabase/seed.sql (`supabase db reset`)
- *   4. writes SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY into .dev.vars and
- *      .env.smoke (preserving anything already there, e.g. WhatsApp tokens)
- *   5. optionally runs the smoke test (photo → confirm → undo) against the
- *      freshly reset Supabase and reports the result — fails the bootstrap
- *      if the round trip breaks (set RUN_SMOKE=1 to enable)
- *   6. runs `wrangler dev` with the demo enabled and waits for /health
+ * Gets a fresh clone to a running full-stack dev environment in one step —
+ * everything inside Cloudflare, no Docker, no Supabase:
+ *   1. installs deps if node_modules is missing (`npm install`)
+ *   2. applies the D1 migrations to the LOCAL D1 state
+ *      (`wrangler d1 migrations apply bill-snap --local`) — the same
+ *      migrations/0001_schema.sql that deploys to production, run against
+ *      miniflare's local SQLite; no Cloudflare login, no account
+ *   3. optionally runs the smoke test (photo → confirm → undo) against the
+ *      D1 stores and reports the result — fails the bootstrap if the round
+ *      trip breaks (set RUN_SMOKE=1 to enable)
+ *   4. runs `wrangler dev` with the demo enabled and waits for /health
  *
- * Prerequisites: Node + npm (this project), Docker Desktop running, and
- * internet for the first `npx supabase` + image pulls.
- *
- * Note: `supabase db reset` recreates the local database each run, so local
- * data is reset to a known seeded state — that's the point of a bootstrap.
+ * Prerequisites: Node + npm (this project). Internet only for the first
+ * `npx wrangler` + npm install.
  *
  * Optional: DEV_PORT=8790 npm run dev:full   (default port 8787)
  *           RUN_SMOKE=1 npm run dev:full    (also run the smoke test first)
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { summarizeSmoke } from "./smoke-summary.mjs";
 
@@ -50,77 +46,21 @@ function run(cmd, args, { pipe = false } = {}) {
   return res;
 }
 
-// ── 0. Prerequisites ─────────────────────────────────────────────────────────
-const docker = spawnSync("docker", ["info"], { stdio: "ignore", shell: IS_WIN });
-if (docker.status !== 0) {
-  console.error(
-    "[bootstrap] Docker is not available. Start Docker Desktop (or install Podman) " +
-      "before running the full stack — or run `npm run dev -- --var DEV_DEMO:true` " +
-      "for the in-memory demo which needs no Docker or Supabase.",
-  );
-  process.exit(1);
-}
-
-// ── 1. supabase init (only when config.toml is missing) ──────────────────────
-if (!existsSync(join(ROOT, "supabase", "config.toml"))) {
-  console.log("\n[bootstrap] no supabase/config.toml — creating it via `supabase init`");
-  run(NPMX, ["-y", "supabase", "init"]);
+// ── 1. Dependencies ──────────────────────────────────────────────────────────
+if (!existsSync(join(ROOT, "node_modules"))) {
+  console.log("\n[bootstrap] node_modules missing — installing dependencies");
+  run(NPM, ["install"]);
 } else {
-  console.log("[bootstrap] supabase/config.toml found — using the committed pinned config (project bill-snap, ports 54321/54322/…)");
+  console.log("[bootstrap] node_modules found — skipping install");
 }
 
-// ── 2. Start ─────────────────────────────────────────────────────────────────
-console.log("\n[bootstrap] starting local Supabase (first run pulls Docker images — be patient)");
-run(NPMX, ["-y", "supabase", "start"]);
+// ── 2. Apply D1 migrations to the local state ────────────────────────────────
+console.log("\n[bootstrap] applying D1 migrations to the local database (migrations/0001_schema.sql)");
+run(NPMX, ["wrangler", "d1", "migrations", "apply", "bill-snap", "--local"]);
 
-// ── 3. Migrations + seed ─────────────────────────────────────────────────────
-console.log("\n[bootstrap] applying migrations + seed (resets local data to a known state)");
-run(NPMX, ["-y", "supabase", "db", "reset"]);
-
-// ── 4. Read the local URL + service-role key ─────────────────────────────────
-const status = run(NPMX, ["-y", "supabase", "status", "-o", "env"], { pipe: true });
-const envOut = status.stdout.toString();
-// CLI ≥2.114 renamed the env-output keys (API_URL / SERVICE_ROLE_KEY); older
-// CLIs printed SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY. Accept either so the
-// bootstrap works against `npx -y supabase` (latest) and pinned versions.
-const pick = (...keys) => {
-  for (const key of keys) {
-    const m = new RegExp(`^${key}=(.*)$`, "m").exec(envOut);
-    if (m) return m[1].trim();
-  }
-  return null;
-};
-const url = pick("SUPABASE_URL", "API_URL");
-const key = pick("SUPABASE_SERVICE_ROLE_KEY", "SERVICE_ROLE_KEY");
-if (!url || !key) {
-  console.error("[bootstrap] could not read SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY from `supabase status -o env`");
-  process.exit(1);
-}
-
-// ── 5. Wire env files (merge, never clobber existing keys) ───────────────────
-function mergeEnvFile(name, pairs) {
-  const path = join(ROOT, name);
-  const lines = existsSync(path) ? readFileSync(path, "utf8").split(/\r?\n/) : [];
-  for (const [k, v] of pairs) {
-    const idx = lines.findIndex((l) => new RegExp(`^\\s*${k}\\s*=`).test(l));
-    if (idx >= 0) lines[idx] = `${k}=${v}`;
-    else lines.push(`${k}=${v}`);
-  }
-  writeFileSync(path, lines.join("\n") + "\n");
-  console.log(`[bootstrap] wrote ${name}: ${pairs.map(([k]) => k).join(", ")}`);
-}
-mergeEnvFile(".dev.vars", [
-  ["SUPABASE_URL", url],
-  ["SUPABASE_SERVICE_ROLE_KEY", key],
-]);
-mergeEnvFile(".env.smoke", [
-  ["SUPABASE_URL", url],
-  ["SUPABASE_SERVICE_ROLE_KEY", key],
-]);
-
-// ── 5.5. Optional smoke: photo → confirm → undo against the fresh DB ─────────
+// ── 3. Optional smoke: photo → confirm → undo against the D1 stores ─────────
 if (RUN_SMOKE) {
-  console.log("\n[bootstrap] running smoke test against the freshly reset Supabase (photo → confirm → undo)");
+  console.log("\n[bootstrap] running smoke test against the D1 stores (photo → confirm → undo)");
   const smoke = spawnSync(NPM, ["run", "smoke"], { stdio: "pipe", shell: IS_WIN });
   const out = `${smoke.stdout?.toString() ?? ""}${smoke.stderr?.toString() ?? ""}`;
   process.stdout.write(out);
@@ -128,14 +68,14 @@ if (RUN_SMOKE) {
   console.log(`\n${line}`);
   if (!ok) {
     console.error(
-      "[bootstrap] smoke failed — the Supabase wiring is suspect. Fix it (see README 'Local Supabase + smoke test'), " +
+      "[bootstrap] smoke failed — the D1 wiring is suspect. Fix it (see README 'Local dev'), " +
         "or rerun without RUN_SMOKE=1 to skip this gate.",
     );
     process.exit(1);
   }
 }
 
-// ── 6. wrangler dev (demo on), and wait for /health ──────────────────────────
+// ── 4. wrangler dev (demo on), and wait for /health ──────────────────────────
 console.log(`\n[bootstrap] starting wrangler dev on :${DEV_PORT} (demo + dashboard enabled)`);
 const child = spawn(NPM, ["run", "dev", "--", "--port", DEV_PORT, "--var", "DEV_DEMO:true"], {
   stdio: "inherit",
@@ -159,7 +99,7 @@ while (Date.now() < deadline) {
 }
 
 if (healthy) {
-  console.log(`\n✅ Full stack is up!\n   Worker health:  ${healthUrl}\n   Browser demo:   http://127.0.0.1:${DEV_PORT}/dev/demo\n   Dashboard:      http://127.0.0.1:${DEV_PORT}/dev/dashboard\n   Supabase:       ${url}\n\n   Smoke test:     npm run smoke\n   Stop:           Ctrl+C (then \`supabase stop\` if you want to stop the DB too)`);
+  console.log(`\n✅ Full stack is up!\n   Worker health:  ${healthUrl}\n   Browser demo:   http://127.0.0.1:${DEV_PORT}/dev/demo\n   Dashboard:      http://127.0.0.1:${DEV_PORT}/dev/dashboard\n   Webapp:         http://127.0.0.1:${DEV_PORT}/app\n   Storage:        D1 (local) + R2 (local) — everything inside Cloudflare\n\n   Smoke test:     npm run smoke\n   Sample bills:   npm run db:seed   (dashboards with data, no ✨ Seed click)\n   Stop:           npm run dev:down`);
 } else {
   console.warn(`\n[bootstrap] wrangler dev did not answer ${healthUrl} within 60s — check the logs above.`);
 }

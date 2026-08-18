@@ -10,6 +10,24 @@ compatibility_date = "2026-08-01"
 # with the GEMINI_MOCK=true canned readings; the real env.AI binding lives in
 # wrangler.deploy.toml and is applied by `npm run deploy` (see §5.3).
 
+# D1 database — the data model (users/businesses/memberships/transactions) (§5.5).
+# Local dev uses miniflare's local SQLite state (no Cloudflare account, no
+# Docker): `wrangler d1 migrations apply bill-snap --local` applies
+# migrations/0001_schema.sql. The database_id below is a placeholder — only
+# remote deploys use it; wrangler.deploy.toml carries the real id from
+# `wrangler d1 create bill-snap`.
+[[d1_databases]]
+binding = "DB"
+database_name = "bill-snap"
+database_id = "6768f8b1-14da-4ff5-8fd0-abc1572cea3b"
+
+# R2 bucket — bill images (§5.5). Local dev writes to miniflare's local state
+# (the bucket is created implicitly); it must exist remotely before deploy:
+# `wrangler r2 bucket create bill-snap-bills`.
+[[r2_buckets]]
+binding = "BILLS"
+bucket_name = "bill-snap-bills"
+
 # Cron for the nudge/expiry sweep (§5.6/§6.2). Dev: `wrangler dev --test-scheduled`
 # fires the scheduled handler when the dev URL is hit.
 [triggers]

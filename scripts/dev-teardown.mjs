@@ -2,13 +2,12 @@
 /**
  * One-command local dev teardown — `npm run dev:down`.
  *
- * Undoes `npm run dev:full` (scripts/dev-bootstrap.mjs):
- *   1. stops the `wrangler dev` server holding DEV_PORT (default 8787),
- *      including orphaned processes a hard Ctrl+C left behind (the
- *      bootstrap's own SIGINT handler is best-effort and cannot always reach
- *      the grandchild node/workerd on Windows)
- *   2. stops local Supabase (`npx supabase stop` — keeps data volumes so
- *      the next `dev:full` restart is fast; `--no-backup` deletes them)
+ * Undoes `npm run dev:full` (scripts/dev-bootstrap.mjs): stops the `wrangler
+ * dev` server holding DEV_PORT (default 8787), including orphaned processes
+ * a hard Ctrl+C left behind (the bootstrap's own SIGINT handler is
+ * best-effort and cannot always reach the grandchild node/workerd on
+ * Windows). No database to stop — local D1/R2 state lives in .wrangler/ and
+ * is kept for the next `dev:full` (delete .wrangler/ to reset it).
  *
  * Why kill by command line instead of the port-holder PID: `wrangler dev`
  * watches its worker and RESTARTS it when the listener dies, so killing just
@@ -26,7 +25,6 @@
 import { spawnSync } from "node:child_process";
 
 const IS_WIN = process.platform === "win32";
-const NPMX = IS_WIN ? "npx.cmd" : "npx";
 const DEV_PORT = process.env.DEV_PORT ?? "8787";
 
 const log = (...a) => console.log("[teardown]", ...a);
@@ -131,29 +129,7 @@ async function stopWrangler() {
   }
 }
 
-// ── 2. Stop local Supabase ───────────────────────────────────────────────────
-function stopSupabase() {
-  log("stopping local Supabase (`npx supabase stop` — data volumes kept; use `supabase stop --no-backup` to delete them)");
-  const res = spawnSync(NPMX, ["-y", "supabase", "stop"], { encoding: "utf8", shell: IS_WIN });
-  const out = `${res.stdout ?? ""}${res.stderr ?? ""}`;
-  if (res.status === 0) {
-    log("Supabase stopped.");
-    return;
-  }
-  const nothingToStop =
-    /not running|no (running )?supabase|no containers|nothing to stop|command not found/i.test(out) ||
-    /docker.*(not|isn'?t|is not).*(available|running)/i.test(out);
-  if (nothingToStop) {
-    log("Supabase wasn't running (or Docker isn't available) — nothing to stop.");
-  } else {
-    process.stdout.write(out);
-    console.error(`\n[teardown] \`supabase stop\` failed (exit ${res.status ?? "signal"}) — see output above.`);
-    process.exit(res.status ?? 1);
-  }
-}
-
-// ── 3. Go ────────────────────────────────────────────────────────────────────
+// ── 2. Go ────────────────────────────────────────────────────────────────────
 console.log(`[teardown] dev:down — stopping the stack from \`npm run dev:full\` (port ${DEV_PORT})`);
 await stopWrangler();
-stopSupabase();
-console.log("\n[teardown] done.");
+console.log("\n[teardown] done. Local D1/R2 state in .wrangler/ is kept for the next `dev:full`; delete it to reset.");

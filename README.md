@@ -28,9 +28,10 @@ the scaffold plan (milestones M0–M8) in
 - **Flows** (`src/flows/`) — photo ingestion (idempotent draft on
   `(user_phone, wa_message_id)`), auto-log or confirm screen per §5.4, the
   confirm/edit/undo commands, onboarding, and the nudge + expiry sweep.
-- **Persistence** (`src/db/`, `src/storage/`) — Supabase REST stores over the
-  migrations in `supabase/migrations/`; bill images archive to the `bills`
-  bucket at `business_id/YYYY/MM/`.
+- **Persistence** (`src/db/`, `src/storage/`) — Cloudflare D1 (SQLite) stores
+  over the migrations in `migrations/`; bill images archive to the `BILLS` R2
+  bucket at `business_id/YYYY/MM/`. Everything stays inside Cloudflare — no
+  external database.
 
 ## Prerequisites
 
@@ -38,7 +39,6 @@ the scaffold plan (milestones M0–M8) in
 - A Cloudflare account (`npx wrangler login`) — only needed for **deploying**
   (the Workers AI binding is remote-only and lives in `wrangler.deploy.toml`,
   so local dev and CI run without any Cloudflare credentials)
-- The Supabase CLI — only for the local Supabase + smoke recipe (see below)
 
 ## Install and run locally
 
@@ -55,43 +55,40 @@ Then open:
 - `http://127.0.0.1:8787/dev/dashboard` — the analytics dashboard
 
 Without `--var DEV_DEMO:true` the `/dev/*` routes 404. The demo runs fully
-in-memory when `SUPABASE_URL` is unset, so you can try the whole flow with no
-infrastructure at all.
+in-memory when no D1/R2 bindings are present, so you can try the whole flow
+with no infrastructure at all.
 
 ### Full stack in one command (`npm run dev:full`)
 
-Want the real Supabase stores, storage bucket, and the smoke-test wiring too?
-`npm run dev:full` (requires **Docker Desktop running** and the Supabase CLI,
-which `npx` fetches on first use) does it all in one step:
+Want the real D1 stores + R2 storage too? `npm run dev:full` does it in one
+step — no Docker, no Supabase, no Cloudflare account:
 
-1. uses the committed `supabase/config.toml` (pinned project `bill-snap` and
-   ports, so every clone boots the same stack; `supabase init` runs only if
-   you deleted that file)
-2. starts local Supabase (`supabase start`) — first run pulls Docker images
-3. applies `supabase/migrations/` + `supabase/seed.sql` (`supabase db reset`;
-   this resets local DB data to the seeded state each run)
-4. writes `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` into `.dev.vars` and
-   `.env.smoke`, preserving any WhatsApp tokens already there
-5. runs `wrangler dev` with the demo enabled and waits for `/health`
+1. installs deps if `node_modules` is missing
+2. applies `migrations/0001_schema.sql` to the **local D1 state**
+   (`wrangler d1 migrations apply bill-snap --local`) — the exact schema that
+   deploys to production, run against miniflare's local SQLite
+3. runs `wrangler dev` with the demo enabled and waits for `/health`
 
-The demo then runs against real Supabase (badge shows `persistence: supabase`),
-and `npm run smoke` works because `.env.smoke` is already populated. Use a
-different worker port with `DEV_PORT=8790 npm run dev:full`. If you only want
-the demo without any infrastructure, keep using the in-memory path above.
+The demo then runs against real D1 + R2 (badge shows `persistence: d1`), so
+dashboard entries survive page reloads. Want sample data without clicking the
+dashboard's ✨ Seed button? `npm run db:seed` inserts the six demo bills
+directly into D1 (idempotent — safe to re-run). Use a different worker port
+with `DEV_PORT=8790 npm run dev:full`. If you only want the demo without any
+infrastructure, keep using the in-memory path above.
 
 `RUN_SMOKE=1 npm run dev:full` additionally runs the smoke test (photo →
-confirm → undo) against the freshly reset Supabase **before** starting
-`wrangler dev`, and prints a one-line pass/fail report. Because the bootstrap
-just wrote `.env.smoke`, the smoke runs for real (never auto-skips); if the
+confirm → undo) against the D1 stores **before** starting `wrangler dev`, and
+prints a one-line pass/fail report. The smoke always runs for real (no env
+wiring needed — it builds the stores from the migration SQL directly); if the
 round trip fails, the bootstrap aborts with the failure shown — rerun without
 `RUN_SMOKE=1` to skip the gate.
 
 Tear it all down with `npm run dev:down` — it stops the `wrangler dev`
 listening on the dev port (finding the real port-holder, so it also catches
-an orphaned server a hard Ctrl+C left behind) and runs `npx supabase stop`
-(keeps data volumes; `npx supabase stop --no-backup` deletes them). It's safe
-to run when nothing is up — it reports what it stopped and exits 0. Use
-`DEV_PORT=8790 npm run dev:down` to match a custom worker port.
+an orphaned server a hard Ctrl+C left behind). Local D1/R2 state in
+`.wrangler/` is kept for the next `dev:full`; delete that directory to reset
+it. It's safe to run when nothing is up — it reports what it stopped and
+exits 0. Use `DEV_PORT=8790 npm run dev:down` to match a custom worker port.
 
 ### The demo console
 
@@ -116,29 +113,35 @@ browser demo never require a Cloudflare login.
 | `AI_MODEL` | — (optional) | Workers AI text model override (default: `@cf/meta/llama-3.3-70b-instruct-fp8-fast`) |
 | `AI_VISION_MODEL` | — (optional) | Vision model override (default: `@cf/llava-hf/llava-1.5-7b-hf`) |
 | `GEMINI_MOCK` | — (dev only) | `true` → deterministic mock AI extractor, never in production |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | real stores / smoke | Supabase REST + Storage (service-role is server-side only) |
 | `DEV_DEMO` | demo (dev only) | `true` → enables `/dev/*` routes |
 | `EXTRACTION_*`, `DRAFT_TTL_MINUTES`, `NUDGE_DELAY_MINUTES`, `UNDO_*` | — (optional) | §5.4 thresholds and §5.6/§5.8 TTLs; defaults in `src/config.ts` |
 
-## Local Supabase + smoke test
+The **data model and images need no env vars at all**: D1 (`DB` binding,
+`migrations/`) and R2 (`BILLS` binding) are wrangler.toml bindings, not
+secrets. WhatsApp vars are the only secrets the app itself uses.
+
+## D1 + smoke test
 
 ```bash
-npx supabase start          # boots local Postgres + Storage (config.toml is
-                            # committed and pinned — no `supabase init` needed)
-npx supabase db reset       # applies supabase/migrations/ + supabase/seed.sql
-cp .env.smoke.example .env.smoke
-# fill in SUPABASE_URL (http://127.0.0.1:54321) and the service-role key
-# printed by `supabase start`
-npm run smoke               # photo → confirm → undo against the real stores
+npm run smoke     # photo → confirm → undo through the real D1 stores + R2
+                  # storage, over the real migration SQL (node:sqlite shim)
+npm run db:seed   # insert the six demo sample bills into local D1
+                  # (npm run db:seed:remote for the production database)
 ```
 
-`supabase/config.toml` is committed with `project_id = "bill-snap"` and every
-local port pinned (54321 API / 54322 Postgres / 54323 Studio / …), so a fresh
-clone gets the exact same local stack as everyone else — delete it and re-run
-`npx supabase init` only if you want to regenerate it from the CLI template.
+The smoke test needs no infrastructure: it runs the production store
+implementations against an in-memory SQLite that executes the exact
+`migrations/0001_schema.sql` from this repo (plus a fake R2 bucket), so a
+schema or store regression fails immediately on any machine — no Docker, no
+Cloudflare account, no secrets. It is included in `npm test` (never skipped)
+and run as its own CI job.
 
-`npm test` auto-skips the smoke test when `SUPABASE_URL` isn't present, so a
-clone without Supabase still gets a green suite.
+`db:seed` runs the committed `d1/seed.sql` via `wrangler d1 execute --file` —
+the same six bills the dashboard's ✨ Seed button logs, written straight into
+D1 with the exact `raw_extraction` JSON the pipeline produces. It is
+idempotent: re-running resets only the seed's own rows (`wamid.seed-d1.*`),
+leaving user-confirmed bills untouched. A regression test
+(`tests/db-seed.test.ts`) pins the file so a typo fails CI.
 
 ## Eval & regression harness (§5.7)
 
@@ -167,34 +170,38 @@ tests and the live demo.
 
 ```bash
 npm run typecheck   # tsc, both app and test configs
-npm test            # vitest — unit + flow tests (smoke auto-skipped)
-npm run smoke       # Supabase round trip (needs local Supabase, see above)
+npm test            # vitest — unit + flow tests (smoke always runs)
+npm run smoke       # photo → confirm → undo round trip (D1 stores, no infra)
+npm run db:seed     # insert the six demo sample bills into local D1
 npm run dev         # wrangler dev (add -- --var DEV_DEMO:true for the demo)
-npm run dev:full    # one-command bootstrap: Supabase up + seed + wrangler dev
+npm run dev:full    # one-command bootstrap: D1 migrations + wrangler dev
                     #   (RUN_SMOKE=1 npm run dev:full also runs the smoke first)
-npm run dev:down    # teardown: stop wrangler dev on the dev port + supabase stop
-npm run deploy      # wrangler deploy -c wrangler.deploy.toml (adds the AI binding)
+npm run dev:down    # teardown: stop wrangler dev on the dev port
+npm run deploy      # wrangler deploy -c wrangler.deploy.toml (adds AI/D1/R2 bindings)
 ```
 
 ## Deploying
 
 Deploys are automated: the **Deploy** workflow (`.github/workflows/deploy.yml`)
 runs on every push to `main` and on `v*` tags — it re-runs the full CI gates
-(typecheck, tests, the §5.7 eval, and the Supabase smoke round trip, which
-boots local Supabase on the runner and runs `npm run smoke` against the real
-migrations + seed) and only then `wrangler deploy`s. Configure
-GitHub Actions secrets for the deploy:
+(typecheck, tests, the §5.7 eval, and the D1 smoke round trip) and only then
+applies the migrations to the remote D1 (`wrangler d1 migrations apply
+bill-snap --remote`) and `wrangler deploy`s. Configure GitHub Actions secrets
+for the deploy:
 
 - `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (Cloudflare API token with
   Workers edit permission)
-- the six worker secrets: `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`,
-  `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TOKEN`, `SUPABASE_URL`,
-  `SUPABASE_SERVICE_ROLE_KEY` — set as Cloudflare secrets by the workflow
-  before each deploy
-- optional `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` — authenticates the Docker
-  pulls in the smoke and Bootstrap E2E jobs, which avoids anonymous
-  rate-limit flakes (`toomanyrequests`) when parallel jobs pull the Supabase
-  images on shared runner IPs
+- the four WhatsApp worker secrets: `WHATSAPP_VERIFY_TOKEN`,
+  `WHATSAPP_APP_SECRET`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TOKEN` — set as
+  Cloudflare secrets by the workflow before each deploy
+
+One-time infrastructure setup (from a logged-in machine):
+
+```bash
+wrangler d1 create bill-snap        # paste the returned id as database_id in wrangler.deploy.toml
+wrangler r2 bucket create bill-snap-bills
+wrangler d1 migrations apply bill-snap --remote
+```
 
 Manual deploy (same steps, no CI gate):
 
@@ -203,19 +210,18 @@ wrangler secret put WHATSAPP_VERIFY_TOKEN
 wrangler secret put WHATSAPP_APP_SECRET
 wrangler secret put WHATSAPP_PHONE_NUMBER_ID
 wrangler secret put WHATSAPP_TOKEN
-wrangler secret put SUPABASE_URL
-wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 npm run deploy
 ```
 
 A separate **Bootstrap E2E** workflow (`.github/workflows/bootstrap-e2e.yml`, on
 main / `v*` tags / manual dispatch) proves the bootstrap itself: it runs
-`npm run dev:full` on a real Docker runner, waits for the ✅ Full stack banner,
-asserts the demo/dashboard endpoints and env wiring, then runs `npm run dev:down`
-and reports the banner in the job summary. Manual runs (dispatch) default the
-`run_smoke` input ON, which additionally runs the photo → confirm → undo round
-trip inside the same job (the bootstrap's `RUN_SMOKE=1` gate), so one run
-proves the full stack, the real-store round trip, and the teardown together.
+`npm run dev:full` on a fresh runner with no Docker and no Cloudflare account,
+waits for the ✅ Full stack banner, asserts the demo/dashboard/webapp
+endpoints, then runs `npm run dev:down` and reports the banner in the job
+summary. Manual runs (dispatch) default the `run_smoke` input ON, which
+additionally runs the photo → confirm → undo round trip inside the same job
+(the bootstrap's `RUN_SMOKE=1` gate), so one run proves the full stack, the
+real-store round trip, and the teardown together.
 
 Then point the Meta WhatsApp webhook at `https://<your-worker>.workers.dev/webhook`
 with your verify token. The `[triggers]` cron in `wrangler.toml` runs the
@@ -233,10 +239,10 @@ src/
 │                         # validate, gate, mock (dev)
 ├── flows/                # photo, confirm, edit, commands, onboarding, nudge
 ├── messaging/            # WhatsApp messenger + reply screens
-├── db/                   # Supabase REST stores (users, businesses, drafts)
-├── storage/              # bills bucket uploads
+├── db/                   # D1 stores (users, businesses, drafts) — SQLite
+├── storage/              # R2 bill-image uploads
 └── dev/                  # demo console, dashboard, in-memory stores
+migrations/               # D1 schema (0001) — same file local + remote
 eval/                     # §5.7 golden corpus + harness, OCR runner, sweep
-supabase/migrations/      # schema, RLS, storage bucket (0001–0003) + seed
 tests/                    # vitest suite (unit + flows + smoke)
 ```

@@ -1,18 +1,20 @@
 /**
  * Bill image storage (M8, §5.5/§5.6). Uploads the WhatsApp-downloaded bytes to
- * the Supabase `bills` bucket at `business_id/YYYY/MM/{mediaId}.{ext}` — the
- * tenant-scoped path from §5.5 so share links and multi-user access are trivial.
+ * the Cloudflare R2 `BILLS` bucket at `business_id/YYYY/MM/{mediaId}.{ext}` —
+ * the tenant-scoped path from §5.5 so share links and multi-user access are
+ * trivial.
  *
  * Archival only: extraction runs on the bytes already in hand, so an upload
  * failure must never block the bill flow (the photo flow treats it as
  * non-fatal and keeps the media IDs on the draft).
+ *
+ * URLs are same-origin paths (`/bills/{path}`) served by the worker's GET
+ * route from the bucket — no public-bucket / custom-domain setup needed.
  */
-import type { AppConfig } from "../config";
-
 export interface UploadedBill {
   /** Storage path, e.g. `11111111-1111-4111-8111-111111111111/2026/08/MEDIA-1.jpg`. */
   path: string;
-  /** Public URL for re-reads and the accountant export (§5.5). */
+  /** Same-origin URL served from the R2 bucket (`/bills/{path}`) — for re-reads and the accountant export (§5.5). */
   url: string;
 }
 
@@ -30,6 +32,15 @@ export interface BillStorage {
   ): Promise<UploadedBill>;
 }
 
+/** The narrow R2 surface the store uses — the real R2Bucket binding satisfies it. */
+export interface R2Like {
+  put(
+    key: string,
+    value: ArrayBuffer | Uint8Array | string,
+    options?: { httpMetadata?: { contentType?: string } },
+  ): Promise<unknown>;
+}
+
 const MIME_EXT: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
@@ -44,20 +55,12 @@ function sanitize(mediaId: string): string {
   return cleaned === "" ? "bill" : cleaned;
 }
 
-export function createSupabaseBillStorage(
-  config: AppConfig,
-  fetchFn?: typeof fetch,
-): BillStorage | null {
-  if (!config.supabase.url || !config.supabase.serviceRoleKey) return null;
-  return new SupabaseBillStorage(config.supabase.url, config.supabase.serviceRoleKey, fetchFn ?? fetch);
+export function createR2BillStorage(bucket: R2Like): BillStorage {
+  return new R2BillStorage(bucket);
 }
 
-class SupabaseBillStorage implements BillStorage {
-  constructor(
-    private readonly url: string,
-    private readonly key: string,
-    private readonly fetchFn: typeof fetch,
-  ) {}
+class R2BillStorage implements BillStorage {
+  constructor(private readonly bucket: R2Like) {}
 
   async uploadBill(
     businessId: string,
@@ -70,18 +73,7 @@ class SupabaseBillStorage implements BillStorage {
     const mm = String(now.getMonth() + 1).padStart(2, "0");
     const path = `${businessId}/${yyyy}/${mm}/${sanitize(opts.mediaId)}.${MIME_EXT[mimeType] ?? "jpg"}`;
 
-    const res = await this.fetchFn(`${this.url}/storage/v1/object/bills/${path}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.key}`,
-        "Content-Type": mimeType,
-      },
-      body: bytes,
-    });
-    if (!res.ok) {
-      throw new Error(`Supabase storage upload failed: HTTP ${res.status}`);
-    }
-
-    return { path, url: `${this.url}/storage/v1/object/public/bills/${path}` };
+    await this.bucket.put(path, bytes, { httpMetadata: { contentType: mimeType } });
+    return { path, url: `/bills/${path}` };
   }
 }

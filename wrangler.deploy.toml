@@ -6,12 +6,29 @@
 # dev` opens a remote proxy session for it that requires a Cloudflare login,
 # which would block fresh clones and CI runners. Keep this file in sync with
 # wrangler.toml (name/main/compatibility_date/triggers).
+#
+# First deploy (one-time, from a logged-in machine):
+#   wrangler d1 create bill-snap        → paste the returned id as database_id below
+#   wrangler r2 bucket create bill-snap-bills
+#   wrangler d1 migrations apply bill-snap --remote
 name = "bill-snap"
 main = "src/index.ts"
 compatibility_date = "2026-08-01"
 
 [ai]
 binding = "AI"
+
+# D1 database — the data model (§5.5). database_id comes from
+# `wrangler d1 create bill-snap` (the worker is named after the database).
+[[d1_databases]]
+binding = "DB"
+database_name = "bill-snap"
+database_id = "6768f8b1-14da-4ff5-8fd0-abc1572cea3b"
+
+# R2 bucket — bill images (§5.5).
+[[r2_buckets]]
+binding = "BILLS"
+bucket_name = "bill-snap-bills"
 
 [triggers]
 crons = ["*/2 * * * *"]

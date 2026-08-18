@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import type { D1Like } from "../src/db/d1";
 import type {
   BusinessPatch,
   BusinessRecord,
@@ -37,6 +41,46 @@ export class FakeBillStorage implements BillStorage {
     const path = `${businessId}/2026/08/${opts.mediaId}.${ext}`;
     return { path, url: `${this.baseUrl}/bills/${path}` };
   }
+}
+
+/**
+ * A node:sqlite-backed D1 shim (§5.5). Runs the REAL migration SQL
+ * (migrations/0001_schema.sql) against an in-memory SQLite database and
+ * implements the narrow D1Like surface the stores use — so store tests,
+ * the demo/dashboard paths, and the smoke test exercise the real schema and
+ * SQL semantics (foreign keys, partial unique index idempotency, RETURNING)
+ * with zero Docker / no Cloudflare account.
+ */
+export function createTestD1(migrationPath = "migrations/0001_schema.sql"): D1Like {
+  const db = new DatabaseSync(":memory:");
+  db.exec(readFileSync(resolve(process.cwd(), migrationPath), "utf8"));
+  return {
+    prepare(sql: string) {
+      const stmt = db.prepare(sql);
+      let bound: SQLInputValue[] = [];
+      return {
+        bind(...values: SQLInputValue[]) {
+          bound = values;
+          return this as unknown as ReturnType<D1Like["prepare"]>;
+        },
+        all<T = unknown>() {
+          return Promise.resolve({ results: stmt.all(...bound) as T[] });
+        },
+        first<T = unknown>() {
+          const row = stmt.get(...bound);
+          return Promise.resolve((row === undefined ? null : row) as T | null);
+        },
+        run() {
+          const res = stmt.run(...bound);
+          return Promise.resolve({ meta: { changes: Number(res.changes) } });
+        },
+      };
+    },
+    exec(sql: string) {
+      db.exec(sql);
+      return Promise.resolve();
+    },
+  };
 }
 
 export class FakeUserStore implements UserStore {

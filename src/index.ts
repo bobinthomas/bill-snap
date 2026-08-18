@@ -5,35 +5,56 @@
  * - GET  /webhook  — WhatsApp verify-token handshake (§7.2)
  * - POST /webhook  — X-Hub-Signature-256 verification → parse → route (§5.6)
  * - GET  /health   — skeleton health check (M0)
+ * - GET  /bills/*  — serves bill images from the R2 bucket (same-origin URLs)
  * - scheduled    — nudge + expiry sweep (cron, §5.6/§6.2)
  *
  * `createApp` accepts optional dependency overrides (used by tests); the default
- * export builds the production app with the real Supabase/WhatsApp adapters.
+ * export builds the production app with the real D1/R2/Workers AI adapters —
+ * everything stays inside Cloudflare (§5.5: D1 for the data model, R2 for
+ * bill images, Workers AI for the fallback parser). No Supabase.
  */
-import type { ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
+import type { D1Database, ExecutionContext, R2Bucket, ScheduledController } from "@cloudflare/workers-types";
+import type { CloudBindings } from "./bindings";
 import { Hono } from "hono";
 import { loadConfig } from "./config";
 import { billsToCsv, dashboardData, exportFileName, renderDashboardPage, seedDemoBills } from "./dev/dashboard";
 import { DEMO_MEDIA_ID, demoDeps, demoState, renderDemoPage, setDemoMedia, simulatePhoto, simulateText } from "./dev/demo";
-import { createSupabaseBusinessStore, type BusinessStore } from "./db/businesses";
-import { createSupabaseDraftStore, type DraftStore } from "./db/drafts";
-import { createSupabaseUserStore, type UserStore } from "./db/users";
+import {
+  renderWebAppPage,
+  stashWebMedia,
+  webAction,
+  webAppState,
+  webPhoto,
+} from "./webapp/app";
+import { createD1BusinessStore, type BusinessStore } from "./db/businesses";
+import { createD1DraftStore, type DraftStore } from "./db/drafts";
+import { createD1UserStore, type UserStore } from "./db/users";
 import { createExtractionService, type ExtractionService } from "./extraction/pipeline";
 import type { WorkersAi } from "./extraction/workers-ai";
 import { runSweep } from "./flows/nudge";
 import { createWhatsAppMessenger, type Messenger } from "./messaging/whatsapp";
-import { createSupabaseBillStorage, type BillStorage } from "./storage/bills";
+import { createR2BillStorage, type BillStorage } from "./storage/bills";
 import { parseInbound } from "./webhook/parse";
 import { route, type RouteDeps } from "./webhook/router";
 import { verifySignature, verifyToken } from "./webhook/verify";
 
 type Env = {
   [key: string]: string | undefined;
+} & {
+  /** D1 database binding (§5.5) — the data model. */
+  DB?: D1Database;
+  /** R2 bucket binding — bill images (§5.5). */
+  BILLS?: R2Bucket;
 };
 
 /** The `env.AI` Workers AI binding, if the runtime provides it (§5.3). */
 function aiBinding(env: Env): WorkersAi | undefined {
   return (env as unknown as { AI?: WorkersAi }).AI;
+}
+
+/** D1 + R2 as the deps layer's CloudBindings — the real stores when present. */
+function cloudBindings(env: Env): CloudBindings {
+  return { db: env.DB, bills: env.BILLS };
 }
 
 export interface AppDeps {
@@ -50,7 +71,7 @@ export function createApp(deps: AppDeps = {}) {
 
   app.get("/", (c) => {
     const config = loadConfig(c.env);
-    return c.html(renderLanding(config, aiBinding(c.env)));
+    return c.html(renderLanding(c.env, config, aiBinding(c.env)));
   });
 
   // DEV-only browser demo (simulated WhatsApp) — gated on config.devDemo.
@@ -61,7 +82,7 @@ export function createApp(deps: AppDeps = {}) {
   });
   app.get("/dev/demo/state", async (c) => {
     if (!devDemo(c.env)) return c.text("Not found", 404);
-    return c.json(await demoState(loadConfig(c.env), aiBinding(c.env)));
+    return c.json(await demoState(loadConfig(c.env), aiBinding(c.env), cloudBindings(c.env)));
   });
   app.post("/dev/demo/photo", async (c) => {
     if (!devDemo(c.env)) return c.text("Not found", 404);
@@ -86,8 +107,8 @@ export function createApp(deps: AppDeps = {}) {
     // Browser OCR settings label (the retry button cycles tesseract configs).
     const ocrConfig = form?.get("ocrConfig");
     const configLabel = typeof ocrConfig === "string" && ocrConfig.trim() !== "" ? ocrConfig : undefined;
-    await simulatePhoto(config, aiBinding(c.env), fileName, ocrText, configLabel);
-    return c.json(await demoState(config, aiBinding(c.env)));
+    await simulatePhoto(config, aiBinding(c.env), fileName, ocrText, configLabel, cloudBindings(c.env));
+    return c.json(await demoState(config, aiBinding(c.env), cloudBindings(c.env)));
   });
   app.post("/dev/demo/text", async (c) => {
     if (!devDemo(c.env)) return c.text("Not found", 404);
@@ -96,8 +117,8 @@ export function createApp(deps: AppDeps = {}) {
     if (typeof body.text !== "string" || body.text.trim() === "") {
       return c.json({ error: "text required" }, 400);
     }
-    await simulateText(config, aiBinding(c.env), body.text.trim());
-    return c.json(await demoState(config, aiBinding(c.env)));
+    await simulateText(config, aiBinding(c.env), body.text.trim(), cloudBindings(c.env));
+    return c.json(await demoState(config, aiBinding(c.env), cloudBindings(c.env)));
   });
 
   // DEV-only analytics dashboard over the demo user's logged bills.
@@ -109,18 +130,23 @@ export function createApp(deps: AppDeps = {}) {
     if (!devDemo(c.env)) return c.text("Not found", 404);
     const q = c.req.query();
     return c.json(
-      await dashboardData(loadConfig(c.env), {
-        month: q.month || undefined,
-        category: q.category || undefined,
-        vendor: q.vendor || undefined,
-      }),
+      await dashboardData(
+        loadConfig(c.env),
+        {
+          month: q.month || undefined,
+          category: q.category || undefined,
+          vendor: q.vendor || undefined,
+        },
+        cloudBindings(c.env),
+        q.device || undefined,
+      ),
     );
   });
   app.post("/dev/dashboard/seed", async (c) => {
     if (!devDemo(c.env)) return c.text("Not found", 404);
     const config = loadConfig(c.env);
-    await seedDemoBills(config);
-    return c.json(await dashboardData(config));
+    await seedDemoBills(config, cloudBindings(c.env));
+    return c.json(await dashboardData(config, {}, cloudBindings(c.env)));
   });
   app.get("/dev/dashboard/export.csv", async (c) => {
     if (!devDemo(c.env)) return c.text("Not found", 404);
@@ -130,10 +156,57 @@ export function createApp(deps: AppDeps = {}) {
       category: q.category || undefined,
       vendor: q.vendor || undefined,
     };
-    const data = await dashboardData(loadConfig(c.env), filters);
+    const data = await dashboardData(loadConfig(c.env), filters, cloudBindings(c.env), q.device || undefined);
     c.header("Content-Type", "text/csv; charset=utf-8");
     c.header("Content-Disposition", `attachment; filename="${exportFileName(filters)}"`);
     return c.body(billsToCsv(data.rows));
+  });
+
+  // Mobile-first webapp (the primary flow; WhatsApp is on hold). Not gated on
+  // DEV_DEMO — this is the product surface. Identity is a browser device id
+  // used as `userPhone`, so the same router/extraction/stores run unchanged.
+  app.get("/app", (c) => c.html(renderWebAppPage()));
+  app.get("/app/state", async (c) => {
+    const config = loadConfig(c.env);
+    const device = c.req.query("device");
+    if (!device) return c.json({ error: "device required" }, 400);
+    return c.json(await webAppState(config, aiBinding(c.env), device, cloudBindings(c.env)));
+  });
+  app.post("/app/photo", async (c) => {
+    const config = loadConfig(c.env);
+    const form = await c.req.formData().catch(() => null);
+    const deviceRaw = form?.get("device");
+    const device = typeof deviceRaw === "string" && deviceRaw.trim() !== "" ? deviceRaw.trim() : null;
+    if (!device) return c.json({ error: "device required" }, 400);
+    let mediaId: string | null = null;
+    let fileName: string | undefined;
+    const file = form?.get("file");
+    if (file instanceof File) {
+      mediaId = stashWebMedia(device, {
+        bytes: new Uint8Array(await file.arrayBuffer()),
+        mimeType: file.type || "image/jpeg",
+        fileName: file.name,
+      });
+      fileName = file.name;
+    }
+    const ocr = form?.get("ocrText");
+    const ocrText = typeof ocr === "string" && ocr.trim() !== "" ? ocr : undefined;
+    const ocrCfg = form?.get("ocrConfig");
+    const ocrConfig = typeof ocrCfg === "string" && ocrCfg.trim() !== "" ? ocrCfg : undefined;
+    await webPhoto(config, aiBinding(c.env), device, mediaId, fileName, ocrText, ocrConfig, cloudBindings(c.env));
+    return c.json(await webAppState(config, aiBinding(c.env), device, cloudBindings(c.env)));
+  });
+  app.post("/app/action", async (c) => {
+    const config = loadConfig(c.env);
+    const body = (await c.req.json().catch(() => ({}))) as { device?: unknown; text?: unknown };
+    if (typeof body.device !== "string" || body.device.trim() === "") {
+      return c.json({ error: "device required" }, 400);
+    }
+    if (typeof body.text !== "string" || body.text.trim() === "") {
+      return c.json({ error: "text required" }, 400);
+    }
+    await webAction(config, aiBinding(c.env), body.device.trim(), body.text.trim(), cloudBindings(c.env));
+    return c.json(await webAppState(config, aiBinding(c.env), body.device.trim(), cloudBindings(c.env)));
   });
 
   app.get("/health", (c) => {
@@ -144,7 +217,8 @@ export function createApp(deps: AppDeps = {}) {
       secretsConfigured: {
         whatsapp: Boolean(config.whatsapp.verifyToken && config.whatsapp.appSecret),
         workersAi: Boolean(aiBinding(c.env)),
-        supabase: Boolean(config.supabase.url && config.supabase.serviceRoleKey),
+        d1: Boolean((c.env as unknown as { DB?: D1Database }).DB),
+        r2: Boolean((c.env as unknown as { BILLS?: R2Bucket }).BILLS),
       },
     });
   });
@@ -173,7 +247,7 @@ export function createApp(deps: AppDeps = {}) {
       return c.text("ok");
     }
 
-    const resolved = buildDeps(deps, config, aiBinding(c.env));
+    const resolved = buildDeps(deps, config, aiBinding(c.env), c.env.DB, c.env.BILLS);
     if (!resolved.ok) {
       return c.text("Service not configured", 503);
     }
@@ -186,15 +260,21 @@ export function createApp(deps: AppDeps = {}) {
 }
 
 /** Resolve injectable deps, falling back to the real adapters; null when not configured. */
-function buildDeps(deps: AppDeps, config: ReturnType<typeof loadConfig>, ai?: WorkersAi):
+function buildDeps(
+  deps: AppDeps,
+  config: ReturnType<typeof loadConfig>,
+  ai?: WorkersAi,
+  db?: D1Database,
+  bills?: R2Bucket,
+):
   | { ok: true; value: RouteDeps }
   | { ok: false } {
   const messenger = deps.send ?? createWhatsAppMessenger(config);
-  const users = deps.users ?? createSupabaseUserStore(config);
-  const businesses = deps.businesses ?? createSupabaseBusinessStore(config);
-  const drafts = deps.drafts ?? createSupabaseDraftStore(config);
+  const users = deps.users ?? (db ? createD1UserStore(db) : undefined);
+  const businesses = deps.businesses ?? (db ? createD1BusinessStore(db) : undefined);
+  const drafts = deps.drafts ?? (db ? createD1DraftStore(db) : undefined);
   const extraction = deps.extraction ?? createExtractionService(config, ai);
-  const storage = deps.storage ?? createSupabaseBillStorage(config);
+  const storage = deps.storage ?? (bills ? createR2BillStorage(bills) : undefined);
   if (!messenger || !users || !businesses || !drafts || !storage) return { ok: false };
   return {
     ok: true,
@@ -203,7 +283,7 @@ function buildDeps(deps: AppDeps, config: ReturnType<typeof loadConfig>, ai?: Wo
 }
 
 /** Minimal landing page so the dev server preview shows real content at `/`. */
-function renderLanding(config: ReturnType<typeof loadConfig>, ai?: WorkersAi): string {
+function renderLanding(env: Env, config: ReturnType<typeof loadConfig>, ai?: WorkersAi): string {
   const pill = (name: string, configured: boolean) => `
     <span class="pill ${configured ? "ok" : "missing"}">
       <span class="dot"></span>${name} ${configured ? "configured" : "not configured"}
@@ -238,8 +318,9 @@ function renderLanding(config: ReturnType<typeof loadConfig>, ai?: WorkersAi): s
     <div class="tag">WhatsApp bill logger — local dev server</div>
     ${pill("WhatsApp webhook", Boolean(config.whatsapp.verifyToken && config.whatsapp.appSecret))}
     ${pill("Workers AI", Boolean(ai))}
-    ${pill("Supabase", Boolean(config.supabase.url && config.supabase.serviceRoleKey))}
+    ${pill("D1", Boolean((env as unknown as { DB?: D1Database }).DB))}${pill("R2", Boolean((env as unknown as { BILLS?: R2Bucket }).BILLS))}
     <ul>
+      <li><a href="/app">/app</a> — <strong>the webapp (mobile-first)</strong>: upload a photo, confirm, done — the primary flow</li>
       <li><a href="/dev/demo">/dev/demo</a> — <strong>the browser demo</strong>: drive the bot flow with simulated WhatsApp messages${config.devDemo ? "" : " (enable: set DEV_DEMO=true in .dev.vars)"}</li>
       <li><a href="/dev/dashboard">/dev/dashboard</a> — <strong>the analytics dashboard</strong>: logged bills, spend, GST, categories, vendors${config.devDemo ? "" : " (enable: set DEV_DEMO=true in .dev.vars)"}</li>
       <li><a href="/health">/health</a> — <code>${config.whatsapp.verifyToken ? "live" : "live (secrets missing)"}</code></li>
@@ -258,7 +339,7 @@ export default {
   fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
   scheduled: async (_event: ScheduledController, env: Env) => {
     const config = loadConfig(env);
-    const resolved = buildDeps({}, config, aiBinding(env));
+    const resolved = buildDeps({}, config, aiBinding(env), env.DB, env.BILLS);
     if (!resolved.ok) return;
     await runSweep(resolved.value);
   },

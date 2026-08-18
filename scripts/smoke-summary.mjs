@@ -35,11 +35,11 @@ export function summarizeSmoke(status, output) {
   if (status === 0) {
     return {
       ok: false,
-      line: `⚠️  Smoke test did not run (${passed} passed, ${failed} failed, ${skipped} skipped) — SUPABASE_URL wiring likely missing from .env.smoke.`,
+      line: `⚠️  Smoke test did not run (${passed} passed, ${failed} failed, ${skipped} skipped) — the D1 store wiring is suspect.`,
     };
   }
   return {
     ok: false,
-    line: `❌ Smoke test FAILED (${failed > 0 ? `${failed} failed` : `exit ${status}`}${skipped ? `, ${skipped} skipped` : ""}). The Supabase wiring is suspect.`,
+    line: `❌ Smoke test FAILED (${failed > 0 ? `${failed} failed` : `exit ${status}`}${skipped ? `, ${skipped} skipped` : ""}). The D1 wiring is suspect.`,
   };
 }

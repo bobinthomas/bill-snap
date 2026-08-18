@@ -1,128 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config";
-import { createSupabaseBusinessStore } from "../src/db/businesses";
-import { createSupabaseDraftStore, isDuplicateMatch, type DraftRecord } from "../src/db/drafts";
-import { createSupabaseUserStore } from "../src/db/users";
+import { createD1BusinessStore } from "../src/db/businesses";
+import { createD1DraftStore, isDuplicateMatch, type DraftRecord } from "../src/db/drafts";
+import { createD1UserStore } from "../src/db/users";
 import type { BillExtraction } from "../src/types";
+import { createTestD1 } from "./fakes";
 
 const PHONE = "61412345678";
 const BIZ = "11111111-1111-4111-8111-111111111111";
-
-function supabaseConfig(): ReturnType<typeof loadConfig> {
-  return loadConfig({
-    SUPABASE_URL: "https://project.supabase.co",
-    SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
-  });
-}
-
-/** A fake PostgREST: records every request and serves scripted responses per route. */
-class FakePostgrest {
-  readonly requests: Array<{
-    method: string;
-    path: string;
-    query: string;
-    body?: unknown;
-    prefer?: string;
-  }> = [];
-
-  private routes: Array<{
-    method: string;
-    path: string;
-    fragments: string[];
-    queue: Response[];
-  }> = [];
-
-  /** Serve one body for method+path whose query contains all fragments (undefined body → 204). */
-  on(
-    method: string,
-    path: string,
-    fragments: string[],
-    body: unknown,
-    init: { status?: number; headers?: Record<string, string> } = {},
-  ): void {
-    this.routes.push({
-      method,
-      path,
-      fragments,
-      queue: [
-        new Response(body === undefined ? null : JSON.stringify(body), {
-          status: init.status ?? 200,
-          headers: { "Content-Type": "application/json", ...init.headers },
-        }),
-      ],
-    });
-  }
-
-  /** Serve `bodies` in order (last one repeats) — for sequenced lookups on the same route. */
-  onSequence(
-    method: string,
-    path: string,
-    fragments: string[],
-    bodies: unknown[],
-    init: { status?: number; headers?: Record<string, string> } = {},
-  ): void {
-    this.routes.push({
-      method,
-      path,
-      fragments,
-      queue: bodies.map(
-        (body) =>
-          new Response(body === undefined ? null : JSON.stringify(body), {
-            status: init.status ?? 200,
-            headers: { "Content-Type": "application/json", ...init.headers },
-          }),
-      ),
-    });
-  }
-
-  readonly handler: typeof fetch = async (input, init) => {
-    const url =
-      typeof input === "string"
-        ? new URL(input)
-        : input instanceof URL
-          ? input
-          : new URL(input.url);
-    const method = (init?.method ?? "GET").toUpperCase();
-    const headers = (init?.headers ?? {}) as Record<string, string>;
-    this.requests.push({
-      method,
-      path: url.pathname,
-      query: decodeURIComponent(url.search.replace(/^\?/, "")),
-      body: init?.body ? JSON.parse(String(init.body)) : undefined,
-      prefer: headers.Prefer,
-    });
-
-    const decodedSearch = decodeURIComponent(url.search);
-    const route = this.routes.find(
-      (r) =>
-        r.method === method &&
-        url.pathname.endsWith(r.path) &&
-        r.fragments.every((f) => decodedSearch.includes(f)),
-    );
-    if (!route) {
-      throw new Error(`FakePostgrest: no route for ${method} ${url.pathname}?${url.search}`);
-    }
-    const res = route.queue.length > 1 ? route.queue.shift()! : route.queue[0]!;
-    return res.clone();
-  };
-}
-
-const USER_ROW = {
-  phone_number: PHONE,
-  business_id: BIZ,
-  setup_step: null,
-  created_at: "2026-08-01T00:00:00.000Z",
-};
-
-const BUSINESS_ROW = {
-  id: BIZ,
-  name: "My Business",
-  abn: null,
-  timezone: "Australia/Sydney",
-  gst_registered: true,
-  auto_save: true,
-  created_at: "2026-08-01T00:00:00.000Z",
-};
 
 const EXTRACTION: BillExtraction = {
   amount: { value: 245, confidence: 0.98 },
@@ -136,125 +21,98 @@ const EXTRACTION: BillExtraction = {
   category_hint: { value: "utilities", confidence: 0.9 },
 };
 
-function draftRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    id: "draft-1",
-    user_phone: PHONE,
-    wa_message_id: "wamid.1",
-    flow_state: "awaiting_confirm",
-    flow_expires_at: "2026-08-15T12:00:00.000Z",
-    image_urls: ["MEDIA-1"],
-    created_at: "2026-08-15T11:50:00.000Z",
-    status: "draft",
-    raw_extraction: null,
-    gate_level: "high",
-    machine_read: false,
-    auto_logged: false,
-    confirmed_at: null,
-    flow_nudged_at: null,
-    ...overrides,
-  };
+/** Seed a business + user so drafts (which reference users) can be created. */
+function seedUser(db: ReturnType<typeof createTestD1>, phone = PHONE, businessId = BIZ): void {
+  db.prepare("insert or ignore into businesses (id, name, timezone) values (?, ?, ?)")
+    .bind(businessId, "My Business", "Australia/Sydney")
+    .run();
+  db.prepare("insert or ignore into users (phone_number, business_id) values (?, ?)").bind(phone, businessId).run();
 }
 
-function expectQuery(req: { query: string }, fragment: string): void {
-  expect(req.query).toContain(fragment);
-}
-
-describe("UserStore (REST)", () => {
+describe("UserStore (D1)", () => {
   it("maps a users row and returns null when absent", async () => {
-    const fake = new FakePostgrest();
-    fake.on("GET", "/rest/v1/users", ["phone_number=eq." + PHONE], [USER_ROW]);
-    const store = createSupabaseUserStore(supabaseConfig(), fake.handler)!;
+    const db = createTestD1();
+    seedUser(db);
+    const store = createD1UserStore(db);
 
     const user = await store.findUser(PHONE);
     expect(user).toEqual({
       phoneNumber: PHONE,
       businessId: BIZ,
-      createdAt: new Date("2026-08-01T00:00:00.000Z"),
+      createdAt: expect.any(Date),
     });
 
-    fake.on("GET", "/rest/v1/users", ["phone_number=eq.61499999999"], []);
-    const missing = await store.findUser("61499999999");
-    expect(missing).toBeNull();
+    expect(await store.findUser("61499999999")).toBeNull();
   });
 });
 
-describe("BusinessStore (REST)", () => {
+describe("BusinessStore (D1)", () => {
   it("onboards: business → user → owner membership, idempotently", async () => {
-    const fake = new FakePostgrest();
-    // Sequence: first lookup (not onboarded) → [], second lookup (after inserts) → row.
-    fake.onSequence("GET", "/rest/v1/users", ["phone_number=eq." + PHONE], [[], [USER_ROW]]);
-    fake.on("POST", "/rest/v1/businesses", [], [BUSINESS_ROW]);
-    fake.on("POST", "/rest/v1/users", [], undefined, { status: 204 });
-    fake.on("POST", "/rest/v1/memberships", [], undefined, { status: 204 });
+    const db = createTestD1();
+    const store = createD1BusinessStore(db);
 
-    const store = createSupabaseBusinessStore(supabaseConfig(), fake.handler)!;
     const onboarded = await store.onboard(PHONE);
-
     expect(onboarded.user.phoneNumber).toBe(PHONE);
-    expect(onboarded.business).toMatchObject({ name: "My Business", timezone: "Australia/Sydney", gstRegistered: true, autoSave: true });
+    expect(onboarded.business).toMatchObject({
+      name: "My Business",
+      timezone: "Australia/Sydney",
+      gstRegistered: true,
+      autoSave: true,
+    });
 
-    const posts = fake.requests.filter((r) => r.method === "POST");
-    expect(posts.map((p) => p.path)).toEqual([
-      "/rest/v1/businesses",
-      "/rest/v1/users",
-      "/rest/v1/memberships",
-    ]);
-    // Owner membership carries the role.
-    const membership = posts[2]!;
-    expect(membership.body).toEqual({ business_id: BIZ, user_phone: PHONE, role: "owner" });
-    // Idempotent inserts.
-    expect(posts[1]!.prefer).toContain("resolution=ignore-duplicates");
-    expect(posts[2]!.prefer).toContain("resolution=ignore-duplicates");
+    // Business + user + owner membership rows all exist.
+    const business = await store.findBusiness(onboarded.business.id);
+    expect(business?.id).toBe(onboarded.business.id);
+    const membership = await db
+      .prepare("select role from memberships where business_id = ? and user_phone = ?")
+      .bind(onboarded.business.id, PHONE)
+      .first<{ role: string }>();
+    expect(membership?.role).toBe("owner");
+
+    // Idempotent: a second onboard returns the same business, no new rows.
+    const again = await store.onboard(PHONE);
+    expect(again.business.id).toBe(onboarded.business.id);
+    const count = await db.prepare("select count(*) as n from businesses").first<{ n: number }>();
+    expect(Number(count?.n)).toBe(1);
   });
 
   it("onboard is a no-op for an already-onboarded user", async () => {
-    const fake = new FakePostgrest();
-    fake.on("GET", "/rest/v1/users", ["phone_number=eq." + PHONE], [USER_ROW]);
-    fake.on("GET", "/rest/v1/businesses", ["id=eq." + BIZ], [BUSINESS_ROW]);
+    const db = createTestD1();
+    const store = createD1BusinessStore(db);
+    const first = await store.onboard(PHONE);
 
-    const store = createSupabaseBusinessStore(supabaseConfig(), fake.handler)!;
-    const onboarded = await store.onboard(PHONE);
-
-    expect(onboarded.business.id).toBe(BIZ);
-    expect(fake.requests.filter((r) => r.method === "POST")).toHaveLength(0);
+    const again = await store.onboard(PHONE);
+    expect(again.business.id).toBe(first.business.id);
+    const memberships = await db.prepare("select count(*) as n from memberships").first<{ n: number }>();
+    expect(Number(memberships?.n)).toBe(1);
   });
 
   it("findBusiness and updateBusiness round-trip the row", async () => {
-    const fake = new FakePostgrest();
-    fake.on("GET", "/rest/v1/businesses", ["id=eq." + BIZ], [BUSINESS_ROW]);
-    fake.on(
-      "PATCH",
-      "/rest/v1/businesses",
-      ["id=eq." + BIZ],
-      [{ ...BUSINESS_ROW, name: "Café", timezone: "Australia/Melbourne", gst_registered: false }],
-    );
+    const db = createTestD1();
+    const store = createD1BusinessStore(db);
+    const onboarded = await store.onboard(PHONE);
+    expect(onboarded.business.name).toBe("My Business");
 
-    const store = createSupabaseBusinessStore(supabaseConfig(), fake.handler)!;
-    expect((await store.findBusiness(BIZ))?.name).toBe("My Business");
-
-    const updated = await store.updateBusiness(BIZ, { name: "Café", timezone: "Australia/Melbourne", gstRegistered: false });
+    const updated = await store.updateBusiness(onboarded.business.id, {
+      name: "Café",
+      timezone: "Australia/Melbourne",
+      gstRegistered: false,
+    });
     expect(updated).toMatchObject({ name: "Café", timezone: "Australia/Melbourne", gstRegistered: false });
-
-    const patch = fake.requests.find((r) => r.method === "PATCH")!;
-    expect(patch.body).toEqual({ name: "Café", timezone: "Australia/Melbourne", gst_registered: false });
-    expect(patch.prefer).toContain("return=representation");
+    expect((await store.findBusiness(onboarded.business.id))?.name).toBe("Café");
   });
 
   it("setup step lives on users.setup_step", async () => {
-    const fake = new FakePostgrest();
-    fake.on("GET", "/rest/v1/users", ["phone_number=eq." + PHONE], [{ ...USER_ROW, setup_step: "timezone" }]);
-    fake.on("PATCH", "/rest/v1/users", ["phone_number=eq." + PHONE], undefined, { status: 204 });
+    const db = createTestD1();
+    const store = createD1BusinessStore(db);
+    await store.onboard(PHONE);
 
-    fake.on("GET", "/rest/v1/users", ["phone_number=eq.61499999999"], []);
-
-    const store = createSupabaseBusinessStore(supabaseConfig(), fake.handler)!;
+    expect(await store.getSetupStep(PHONE)).toBeNull();
+    await store.setSetupStep(PHONE, "timezone");
     expect(await store.getSetupStep(PHONE)).toBe("timezone");
-    expect(await store.getSetupStep("61499999999")).toBeNull(); // no row → null
-
     await store.setSetupStep(PHONE, null);
-    const patch = fake.requests.find((r) => r.method === "PATCH")!;
-    expect(patch.body).toEqual({ setup_step: null });
+    expect(await store.getSetupStep(PHONE)).toBeNull();
+    expect(await store.getSetupStep("61499999999")).toBeNull();
   });
 });
 
@@ -274,9 +132,6 @@ describe("isDuplicateMatch (§5.8 predicate)", () => {
   });
 
   it("matches on equal vendor + amount even when invoices differ (both branches run)", () => {
-    // Mirrors findDuplicate's SQL: the vendor+amount branch fires independently
-    // of the invoice branch — the same recurring charge double-logged with a
-    // new invoice number is still a duplicate.
     expect(isDuplicateMatch(prev, { invoiceNumber: "INV-2", vendor: "Telstra", amount: 245 })).toBe(true);
   });
 
@@ -286,16 +141,16 @@ describe("isDuplicateMatch (§5.8 predicate)", () => {
   });
 });
 
-describe("DraftStore (REST)", () => {
-  function makeStore(fake: FakePostgrest) {
-    return createSupabaseDraftStore(supabaseConfig(), fake.handler)!;
+describe("DraftStore (D1)", () => {
+  function makeStore() {
+    const db = createTestD1();
+    seedUser(db);
+    const store = createD1DraftStore(db);
+    return { db, store };
   }
 
   it("createDraft inserts a processing draft and maps the row", async () => {
-    const fake = new FakePostgrest();
-    fake.on("POST", "/rest/v1/transactions", [], [draftRow({ flow_state: "processing" })]);
-    const store = makeStore(fake);
-
+    const { store } = makeStore();
     const draft = await store.createDraft({
       userPhone: PHONE,
       waMessageId: "wamid.1",
@@ -303,247 +158,253 @@ describe("DraftStore (REST)", () => {
       flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
     });
 
-    expect(draft?.id).toBe("draft-1");
+    expect(draft).not.toBeNull();
     expect(draft?.flowState).toBe("processing");
     expect(draft?.status).toBe("draft");
     expect(draft?.imageUrls).toEqual(["MEDIA-1"]);
     expect(draft?.flowExpiresAt).toEqual(new Date("2026-08-15T12:00:00.000Z"));
-
-    const post = fake.requests[0]!;
-    expect(post.prefer).toContain("return=representation");
-    expect(post.prefer).toContain("resolution=ignore-duplicates");
-    expect(post.body).toEqual({
-      user_phone: PHONE,
-      wa_message_id: "wamid.1",
-      image_urls: ["MEDIA-1"],
-      flow_state: "processing",
-      flow_expires_at: "2026-08-15T12:00:00.000Z",
-      status: "draft",
-    });
   });
 
   it("createDraft returns null on a retried delivery (idempotency)", async () => {
-    const fake = new FakePostgrest();
-    fake.on("POST", "/rest/v1/transactions", [], []);
-    const store = makeStore(fake);
-    const draft = await store.createDraft({
+    const { store } = makeStore();
+    const input = {
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: ["MEDIA-1"],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    };
+    expect((await store.createDraft(input))?.id).toBeDefined();
+    expect(await store.createDraft(input)).toBeNull();
+  });
+
+  it("createDraft idempotency releases once the draft is logged", async () => {
+    const { store } = makeStore();
+    const input = {
       userPhone: PHONE,
       waMessageId: "wamid.1",
       imageUrls: [],
-      flowExpiresAt: new Date(),
-    });
-    expect(draft).toBeNull();
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    };
+    const draft = await store.createDraft(input);
+    expect(draft).not.toBeNull();
+    await store.confirm(draft!.id, new Date("2026-08-15T12:01:00.000Z"), { autoLogged: true });
+    // Same wa_message_id on a NEW draft is allowed once the old one is logged.
+    expect((await store.createDraft(input))?.id).toBeDefined();
   });
 
   it("findActiveDraft filters to the user's live draft", async () => {
-    const fake = new FakePostgrest();
-    fake.on("GET", "/rest/v1/transactions", ["status=eq.draft", "order=created_at.desc", "limit=1"], [draftRow()]);
-    const store = makeStore(fake);
+    const { store } = makeStore();
+    await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState((await store.findActiveDraft(PHONE, new Date("2026-08-15T11:55:00.000Z")))!.id, {
+      flowState: "awaiting_confirm",
+      extraction: EXTRACTION,
+      gateLevel: "high",
+      machineRead: false,
+    });
 
     const draft = await store.findActiveDraft(PHONE, new Date("2026-08-15T11:55:00.000Z"));
     expect(draft?.gateLevel).toBe("high");
     expect(draft?.machineRead).toBe(false);
 
-    const req = fake.requests[0]!;
-    expectQuery(req, "user_phone=eq." + PHONE);
-    expectQuery(req, "status=eq.draft");
-    expectQuery(req, "flow_expires_at=gt.2026-08-15T11:55:00.000Z");
+    // Expired drafts are not returned.
+    expect(await store.findActiveDraft(PHONE, new Date("2026-08-15T13:00:00.000Z"))).toBeNull();
   });
 
   it("setFlowState persists the extraction and gating", async () => {
-    const fake = new FakePostgrest();
-    // PostgREST returns the updated row — including the extraction just written.
-    fake.on(
-      "PATCH",
-      "/rest/v1/transactions",
-      ["id=eq.draft-1"],
-      [draftRow({ raw_extraction: EXTRACTION })],
-    );
-    const store = makeStore(fake);
+    const { store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
 
-    const updated = await store.setFlowState("draft-1", {
+    const updated = await store.setFlowState(draft!.id, {
       flowState: "awaiting_confirm",
       extraction: EXTRACTION,
       gateLevel: "high",
       machineRead: false,
-      imageUrls: ["https://project.supabase.co/storage/v1/object/public/bills/biz-1/2026/08/MEDIA-1.jpg"],
+      imageUrls: ["/bills/biz-1/2026/08/MEDIA-1.jpg"],
     });
 
     expect(updated?.extraction).toEqual(EXTRACTION);
-    const patch = fake.requests[0]!;
-    expect(patch.body).toEqual({
-      flow_state: "awaiting_confirm",
-      raw_extraction: EXTRACTION,
-      gate_level: "high",
-      machine_read: false,
-      image_urls: ["https://project.supabase.co/storage/v1/object/public/bills/biz-1/2026/08/MEDIA-1.jpg"],
-    });
+    expect(updated?.gateLevel).toBe("high");
+    expect(updated?.imageUrls).toEqual(["/bills/biz-1/2026/08/MEDIA-1.jpg"]);
   });
 
   it("confirm denormalises the extraction onto the logged row", async () => {
-    const fake = new FakePostgrest();
-    fake.on(
-      "GET",
-      "/rest/v1/transactions",
-      ["id=eq.draft-1"],
-      [draftRow({ raw_extraction: EXTRACTION })],
-    );
-    fake.on(
-      "PATCH",
-      "/rest/v1/transactions",
-      ["id=eq.draft-1"],
-      [draftRow({ status: "logged", flow_state: null, auto_logged: true, confirmed_at: "2026-08-15T12:01:00.000Z", raw_extraction: EXTRACTION })],
-    );
-    const store = makeStore(fake);
+    const { store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState(draft!.id, {
+      flowState: "awaiting_confirm",
+      extraction: EXTRACTION,
+      gateLevel: "high",
+      machineRead: false,
+    });
 
-    const logged = await store.confirm("draft-1", new Date("2026-08-15T12:01:00.000Z"), { autoLogged: true });
+    const logged = await store.confirm(draft!.id, new Date("2026-08-15T12:01:00.000Z"), { autoLogged: true });
     expect(logged?.status).toBe("logged");
     expect(logged?.flowState).toBeNull();
     expect(logged?.autoLogged).toBe(true);
-
-    const patch = fake.requests[1]!;
-    expect(patch.body).toMatchObject({
-      status: "logged",
-      flow_state: null,
-      confirmed_at: "2026-08-15T12:01:00.000Z",
-      auto_logged: true,
-      amount: 245,
-      gst: 22.27,
-      category: "utilities",
-      vendor: "Telstra",
-      invoice_number: "INV-1",
-      due_date: "2026-09-05",
-    });
+    expect(logged?.confirmedAt).toEqual(new Date("2026-08-15T12:01:00.000Z"));
   });
 
   it("confirm returns null when the draft is already gone", async () => {
-    const fake = new FakePostgrest();
-    fake.on("GET", "/rest/v1/transactions", ["id=eq.draft-1"], []);
-    const store = makeStore(fake);
-    expect(await store.confirm("draft-1", new Date())).toBeNull();
-    expect(fake.requests.filter((r) => r.method === "PATCH")).toHaveLength(0);
+    const { store } = makeStore();
+    expect(await store.confirm("draft-nope", new Date())).toBeNull();
   });
 
   it("expire and softDeleteLogged flip status", async () => {
-    const fake = new FakePostgrest();
-    fake.on("PATCH", "/rest/v1/transactions", ["id=eq.draft-1"], undefined, { status: 204 });
-    fake.on("PATCH", "/rest/v1/transactions", ["id=eq.draft-1"], undefined, { status: 204 });
-    const store = makeStore(fake);
+    const { store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState(draft!.id, { flowState: "awaiting_confirm" });
 
-    await store.expire("draft-1");
-    await store.softDeleteLogged("draft-1");
+    await store.expire(draft!.id);
+    expect((await store.findActiveDraft(PHONE))).toBeNull();
 
-    const patches = fake.requests;
-    expect(patches[0]!.body).toEqual({ status: "expired", flow_state: null });
-    expect(patches[1]!.body).toEqual({ status: "deleted" });
+    // A logged draft can be soft-deleted (undo path, §5.6).
+    const draft2 = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.2",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState(draft2!.id, { flowState: "awaiting_confirm" });
+    await store.confirm(draft2!.id, new Date("2026-08-15T12:01:00.000Z"));
+    await store.softDeleteLogged(draft2!.id);
+    expect(await store.findRecentLogged(PHONE, new Date(Date.now() - 60_000))).toBeNull();
   });
 
   it("findRecentLogged scopes the undo lookup", async () => {
-    const fake = new FakePostgrest();
-    fake.on(
-      "GET",
-      "/rest/v1/transactions",
-      ["status=in.(logged,paid)", "order=confirmed_at.desc", "limit=1"],
-      [draftRow({ status: "logged", confirmed_at: "2026-08-15T12:01:00.000Z" })],
-    );
-    const store = makeStore(fake);
+    const { store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState(draft!.id, { flowState: "awaiting_confirm" });
+    await store.confirm(draft!.id, new Date("2026-08-15T12:01:00.000Z"));
 
     const recent = await store.findRecentLogged(PHONE, new Date("2026-08-15T11:00:00.000Z"));
     expect(recent?.status).toBe("logged");
-    const req = fake.requests[0]!;
-    expectQuery(req, "confirmed_at=gte.2026-08-15T11:00:00.000Z");
+    // A window after the confirm finds nothing.
+    expect(await store.findRecentLogged(PHONE, new Date("2026-08-15T13:00:00.000Z"))).toBeNull();
   });
 
   it("listLogged returns the newest logged rows for the dashboard", async () => {
-    const fake = new FakePostgrest();
-    fake.on(
-      "GET",
-      "/rest/v1/transactions",
-      ["order=confirmed_at.desc", "limit=100"],
-      [draftRow({ status: "logged", confirmed_at: "2026-08-15T12:01:00.000Z" })],
-    );
-    const store = makeStore(fake);
+    const { store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState(draft!.id, { flowState: "awaiting_confirm" });
+    await store.confirm(draft!.id, new Date("2026-08-15T12:01:00.000Z"));
 
     const logged = await store.listLogged(PHONE);
     expect(logged).toHaveLength(1);
     expect(logged[0]?.status).toBe("logged");
-    const req = fake.requests[0]!;
-    expectQuery(req, "user_phone=eq." + PHONE);
-    expectQuery(req, "status=in.(logged,paid)");
-    expectQuery(req, "order=confirmed_at.desc");
-    expectQuery(req, "limit=100");
+    expect(logged[0]?.confirmedAt).toEqual(new Date("2026-08-15T12:01:00.000Z"));
   });
 
   it("findDuplicate checks invoice_number first, then vendor + amount", async () => {
-    const fake = new FakePostgrest();
-    fake.on("GET", "/rest/v1/transactions", ["invoice_number=eq.INV-1"], [draftRow({ status: "logged" })]);
-    const store = makeStore(fake);
+    const { store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState(draft!.id, {
+      flowState: "awaiting_confirm",
+      extraction: EXTRACTION,
+      gateLevel: "high",
+      machineRead: false,
+    });
+    await store.confirm(draft!.id, new Date("2026-08-15T12:01:00.000Z"), { autoLogged: true });
 
     const dup = await store.findDuplicate(PHONE, EXTRACTION, new Date("2026-08-15T00:00:00.000Z"));
     expect(dup?.status).toBe("logged");
-    const req = fake.requests[0]!;
-    expectQuery(req, "invoice_number=eq.INV-1");
-    expectQuery(req, "status=in.(logged,paid)");
 
-    // No invoice → vendor+amount fallback.
-    const fake2 = new FakePostgrest();
-    fake2.on("GET", "/rest/v1/transactions", ["vendor=eq.Telstra", "amount=eq.245"], []);
-    const store2 = makeStore(fake2);
+    // No invoice → vendor+amount fallback matches the same row.
     const noInv: BillExtraction = { ...EXTRACTION, invoice_number: { value: null, confidence: 0 } };
-    expect(await store2.findDuplicate(PHONE, noInv, new Date("2026-08-15T00:00:00.000Z"))).toBeNull();
-    expectQuery(fake2.requests[0]!, "vendor=eq.Telstra");
-    expectQuery(fake2.requests[0]!, "amount=eq.245");
+    const dup2 = await store.findDuplicate(PHONE, noInv, new Date("2026-08-15T00:00:00.000Z"));
+    expect(dup2?.id).toBe(draft!.id);
+
+    // A different amount is not a duplicate.
+    const diff: BillExtraction = { ...noInv, amount: { value: 999, confidence: 0.98 } };
+    expect(await store.findDuplicate(PHONE, diff, new Date("2026-08-15T00:00:00.000Z"))).toBeNull();
   });
 
-  it("findNudgeDue sends the range as one and=(...) expression", async () => {
-    const fake = new FakePostgrest();
-    fake.on("GET", "/rest/v1/transactions", ["flow_nudged_at=is.null"], [draftRow(), draftRow({ id: "draft-2" })]);
-    const store = makeStore(fake);
+  it("findNudgeDue returns never-nudged drafts inside the window", async () => {
+    const { store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:04:00.000Z"), // expires within the window
+    });
+    await store.setFlowState(draft!.id, { flowState: "awaiting_confirm" });
 
     const due = await store.findNudgeDue(new Date("2026-08-15T12:00:00.000Z"), 240_000);
-    expect(due).toHaveLength(2);
+    expect(due).toHaveLength(1);
+    expect(due[0]?.id).toBe(draft!.id);
 
-    const req = fake.requests[0]!;
-    expectQuery(req, "and=(flow_expires_at.gt.2026-08-15T12:00:00.000Z,flow_expires_at.lte.2026-08-15T12:04:00.000Z)");
-    expectQuery(req, "flow_state=in.(awaiting_confirm,editing_amount,editing_vendor,editing_date)");
+    // After nudging, not due again (one-nudge cap).
+    await store.markNudged(draft!.id, new Date("2026-08-15T12:06:00.000Z"));
+    expect(await store.findNudgeDue(new Date("2026-08-15T12:00:00.000Z"), 240_000)).toHaveLength(0);
   });
 
   it("markNudged stamps flow_nudged_at", async () => {
-    const fake = new FakePostgrest();
-    fake.on("PATCH", "/rest/v1/transactions", ["id=eq.draft-1"], undefined, { status: 204 });
-    const store = makeStore(fake);
-    await store.markNudged("draft-1", new Date("2026-08-15T12:06:00.000Z"));
-    expect(fake.requests[0]!.body).toEqual({ flow_nudged_at: "2026-08-15T12:06:00.000Z" });
+    const { store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:04:00.000Z"),
+    });
+    await store.markNudged(draft!.id, new Date("2026-08-15T12:06:00.000Z"));
+    const due = await store.findNudgeDue(new Date("2026-08-15T12:00:00.000Z"), 240_000);
+    expect(due).toHaveLength(0);
   });
 
-  it("expireDue returns the count from Content-Range", async () => {
-    const fake = new FakePostgrest();
-    fake.on("PATCH", "/rest/v1/transactions", ["status=eq.draft", "flow_expires_at=lte.2026-08-15T12:00:00.000Z"], undefined, {
-      status: 204,
-      headers: { "Content-Range": "*/3" },
+  it("expireDue flips expired drafts and returns the count", async () => {
+    const { store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T11:50:00.000Z"), // already past 12:00
     });
-    const store = makeStore(fake);
+    await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.2",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T13:00:00.000Z"), // still live
+    });
 
     const count = await store.expireDue(new Date("2026-08-15T12:00:00.000Z"));
-    expect(count).toBe(3);
-
-    const req = fake.requests[0]!;
-    expect(req.prefer).toContain("count=exact");
-    expect(req.body).toEqual({ status: "expired", flow_state: null });
-  });
-
-  it("surfaces a PostgREST error with its code", async () => {
-    const fake = new FakePostgrest();
-    fake.on(
-      "POST",
-      "/rest/v1/transactions",
-      [],
-      { message: 'duplicate key value violates unique constraint "transactions_draft_idempotency"', code: "23505" },
-      { status: 409 },
-    );
-    const store = makeStore(fake);
-    await expect(
-      store.createDraft({ userPhone: PHONE, waMessageId: "wamid.1", imageUrls: [], flowExpiresAt: new Date() }),
-    ).rejects.toMatchObject({ name: "SupabaseRestError", code: "23505", status: 409 });
+    expect(count).toBe(1);
+    // The live draft remains active; the expired one is gone.
+    const active = await store.findActiveDraft(PHONE, new Date("2026-08-15T12:30:00.000Z"));
+    expect(active).not.toBeNull();
+    expect(active?.id).not.toBe(draft!.id);
   });
 });

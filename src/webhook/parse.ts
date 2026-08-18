@@ -45,7 +45,7 @@ export function parseInbound(raw: string): InboundEvent | null {
     const image = message.image as { id?: unknown; mime_type?: unknown } | undefined;
     if (typeof image?.id !== "string") return null;
     // Media ID at this stage; the photo flow (M4/M8) downloads it and swaps in
-    // the Supabase storage URL.
+    // the R2 storage URL.
     return { ...base, kind: "photo", imageUrls: [image.id] };
   }
 

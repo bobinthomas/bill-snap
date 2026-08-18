@@ -2,19 +2,22 @@
  * Draft lifecycle storage (§5.6). Drafts are `transactions` rows; this store
  * exposes the flow-facing operations and the undo lookup.
  *
- * - `createDraft` is idempotent: `(user_phone, wa_message_id)` is unique (partial
- *   index on `status = 'draft'`), so a retried webhook delivery returns `null`
- *   instead of double-processing.
+ * - `createDraft` is idempotent: `(user_phone, wa_message_id)` is unique while
+ *   `status = 'draft'` (partial unique index, migrations/0001_schema.sql), so
+ *   a retried webhook delivery returns `null` instead of double-processing.
  * - `findActiveDraft` returns the user's newest non-expired draft.
  * - `confirm` / `expire` / `softDeleteLogged` model the status transitions
  *   (`draft` → `logged` / `expired` / `deleted`, §5.6/§5.8). Confirming also
  *   denormalises the extracted fields onto the transaction row so summaries
  *   (§4.3), search, and the accountant export read plain columns.
+ *
+ * Backed by Cloudflare D1 (SQLite): ISO-8601 timestamps as TEXT, booleans as
+ * INTEGER 0/1, image_urls / raw_extraction as JSON strings. Timestamps are
+ * compared lexicographically (same ISO format everywhere).
  */
-import type { AppConfig } from "../config";
 import type { FlowState, GatingLevel } from "../types";
 import type { BillExtraction } from "../types";
-import { createRestClient, type RestClient } from "./client";
+import { parseJson, type D1Like } from "./d1";
 
 export type DraftStatus = "draft" | "logged" | "expired" | "deleted" | "paid";
 
@@ -51,7 +54,7 @@ export interface FlowPatch {
   extraction?: BillExtraction;
   gateLevel?: GatingLevel;
   machineRead?: boolean;
-  /** Supabase storage URLs after the M8 upload; replaces the WhatsApp media IDs. */
+  /** R2 URLs after the M8 upload; replaces the WhatsApp media IDs. */
   imageUrls?: string[];
 }
 
@@ -133,72 +136,79 @@ interface TransactionRow {
   wa_message_id: string;
   flow_state: FlowState | null;
   flow_expires_at: string | null;
-  image_urls: unknown;
+  image_urls: string;
   created_at: string;
   status: DraftStatus;
-  raw_extraction: BillExtraction | null;
+  raw_extraction: string | null;
   gate_level: GatingLevel | null;
-  machine_read: boolean | null;
-  auto_logged: boolean | null;
+  machine_read: number | null;
+  auto_logged: number | null;
   confirmed_at: string | null;
   flow_nudged_at: string | null;
 }
 
-export function createSupabaseDraftStore(
-  config: AppConfig,
-  fetchFn?: typeof fetch,
-): DraftStore | null {
-  if (!config.supabase.url || !config.supabase.serviceRoleKey) return null;
-  return new SupabaseDraftStore(
-    createRestClient({ url: config.supabase.url, key: config.supabase.serviceRoleKey, fetchFn }),
-  );
+export function createD1DraftStore(db: D1Like): DraftStore {
+  return new D1DraftStore(db);
 }
 
-class SupabaseDraftStore implements DraftStore {
-  constructor(private readonly rest: RestClient) {}
+class D1DraftStore implements DraftStore {
+  constructor(private readonly db: D1Like) {}
 
   async createDraft(input: CreateDraftInput): Promise<DraftRecord | null> {
-    const rows = await this.rest.insert<TransactionRow>(
-      "transactions",
-      {
-        user_phone: input.userPhone,
-        wa_message_id: input.waMessageId,
-        image_urls: input.imageUrls,
-        flow_state: "processing",
-        flow_expires_at: input.flowExpiresAt.toISOString(),
-        status: "draft",
-      },
-      { returnRepresentation: true, ignoreDuplicates: true },
-    );
-    const row = rows?.[0];
+    const id = crypto.randomUUID();
+    const res = await this.db
+      .prepare(
+        "insert or ignore into transactions (id, user_phone, wa_message_id, image_urls, flow_state, flow_expires_at, status) values (?, ?, ?, ?, 'processing', ?, 'draft')",
+      )
+      .bind(
+        id,
+        input.userPhone,
+        input.waMessageId,
+        JSON.stringify(input.imageUrls),
+        input.flowExpiresAt.toISOString(),
+      )
+      .run();
+    // changes === 0 → the partial unique index rejected the insert (retried
+    // delivery); return null so the flow treats it as already-processed.
+    if (res.meta.changes === 0) return null;
+    const row = await this.getRow(id);
     return row ? toDraftRecord(row) : null;
   }
 
   async findActiveDraft(userPhone: string, now = new Date()): Promise<DraftRecord | null> {
-    const rows = await this.rest.select<TransactionRow>("transactions", {
-      select: DRAFT_COLUMNS,
-      user_phone: `eq.${userPhone}`,
-      status: "eq.draft",
-      flow_expires_at: `gt.${now.toISOString()}`,
-      order: "created_at.desc",
-      limit: "1",
-    });
-    const row = rows[0];
+    const row = await this.db
+      .prepare(
+        `select ${DRAFT_COLUMNS} from transactions where user_phone = ? and status = 'draft' and flow_expires_at > ? order by created_at desc limit 1`,
+      )
+      .bind(userPhone, now.toISOString())
+      .first<TransactionRow>();
     return row ? toDraftRecord(row) : null;
   }
 
   async setFlowState(id: string, patch: FlowPatch): Promise<DraftRecord> {
-    const body: Record<string, unknown> = { flow_state: patch.flowState };
-    if (patch.extraction !== undefined) body.raw_extraction = patch.extraction;
-    if (patch.gateLevel !== undefined) body.gate_level = patch.gateLevel;
-    if (patch.machineRead !== undefined) body.machine_read = patch.machineRead;
-    if (patch.imageUrls !== undefined) body.image_urls = patch.imageUrls;
+    const sets: string[] = ["flow_state = ?"];
+    const values: unknown[] = [patch.flowState];
+    if (patch.extraction !== undefined) {
+      sets.push("raw_extraction = ?");
+      values.push(JSON.stringify(patch.extraction));
+    }
+    if (patch.gateLevel !== undefined) {
+      sets.push("gate_level = ?");
+      values.push(patch.gateLevel);
+    }
+    if (patch.machineRead !== undefined) {
+      sets.push("machine_read = ?");
+      values.push(patch.machineRead ? 1 : 0);
+    }
+    if (patch.imageUrls !== undefined) {
+      sets.push("image_urls = ?");
+      values.push(JSON.stringify(patch.imageUrls));
+    }
 
-    const rows = await this.rest.update<TransactionRow>("transactions", body, {
-      id: `eq.${id}`,
-      select: DRAFT_COLUMNS,
-    });
-    const row = rows?.[0];
+    const row = await this.db
+      .prepare(`update transactions set ${sets.join(", ")} where id = ? returning ${DRAFT_COLUMNS}`)
+      .bind(...values, id)
+      .first<TransactionRow>();
     if (!row) throw new Error(`setFlowState: draft ${id} not found`);
     return toDraftRecord(row);
   }
@@ -207,55 +217,54 @@ class SupabaseDraftStore implements DraftStore {
     const before = await this.getRow(id);
     if (!before) return null;
 
-    const e = before.raw_extraction;
-    const rows = await this.rest.update<TransactionRow>(
-      "transactions",
-      {
-        status: "logged",
-        flow_state: null,
-        confirmed_at: confirmedAt.toISOString(),
-        auto_logged: opts.autoLogged ?? false,
-        // Denormalise the extraction so summaries/search read plain columns (§5.5).
-        amount: e?.amount.value ?? null,
-        gst: e?.gst.value ?? null,
-        category: e?.category_hint?.value ?? "misc",
-        vendor: e?.vendor.value ?? null,
-        abn: e?.abn.value ?? null,
-        invoice_number: e?.invoice_number.value ?? null,
-        due_date: e?.due_date.value ?? null,
-      },
-      { id: `eq.${id}`, select: DRAFT_COLUMNS },
-    );
-    const row = rows?.[0];
+    const e = before.raw_extraction ? parseJson<BillExtraction>(before.raw_extraction, null as never) : null;
+    const row = await this.db
+      .prepare(
+        `update transactions set status = 'logged', flow_state = null, confirmed_at = ?, auto_logged = ?,
+           amount = ?, gst = ?, category = ?, vendor = ?, abn = ?, invoice_number = ?, due_date = ?
+         where id = ? returning ${DRAFT_COLUMNS}`,
+      )
+      .bind(
+        confirmedAt.toISOString(),
+        opts.autoLogged ? 1 : 0,
+        e?.amount.value ?? null,
+        e?.gst.value ?? null,
+        e?.category_hint?.value ?? "misc",
+        e?.vendor.value ?? null,
+        e?.abn.value ?? null,
+        e?.invoice_number.value ?? null,
+        e?.due_date.value ?? null,
+        id,
+      )
+      .first<TransactionRow>();
     return row ? toDraftRecord(row) : null;
   }
 
   async expire(id: string): Promise<void> {
-    await this.rest.update("transactions", { status: "expired", flow_state: null }, { id: `eq.${id}` });
+    await this.db
+      .prepare("update transactions set status = 'expired', flow_state = null where id = ?")
+      .bind(id)
+      .run();
   }
 
   async findRecentLogged(userPhone: string, within: Date): Promise<DraftRecord | null> {
-    const rows = await this.rest.select<TransactionRow>("transactions", {
-      select: DRAFT_COLUMNS,
-      user_phone: `eq.${userPhone}`,
-      status: "in.(logged,paid)",
-      confirmed_at: `gte.${within.toISOString()}`,
-      order: "confirmed_at.desc",
-      limit: "1",
-    });
-    const row = rows[0];
+    const row = await this.db
+      .prepare(
+        `select ${DRAFT_COLUMNS} from transactions where user_phone = ? and status in ('logged', 'paid') and confirmed_at >= ? order by confirmed_at desc limit 1`,
+      )
+      .bind(userPhone, within.toISOString())
+      .first<TransactionRow>();
     return row ? toDraftRecord(row) : null;
   }
 
   async listLogged(userPhone: string, limit = 100): Promise<DraftRecord[]> {
-    const rows = await this.rest.select<TransactionRow>("transactions", {
-      select: DRAFT_COLUMNS,
-      user_phone: `eq.${userPhone}`,
-      status: "in.(logged,paid)",
-      order: "confirmed_at.desc",
-      limit: String(limit),
-    });
-    return rows.map(toDraftRecord);
+    const res = await this.db
+      .prepare(
+        `select ${DRAFT_COLUMNS} from transactions where user_phone = ? and status in ('logged', 'paid') order by confirmed_at desc limit ?`,
+      )
+      .bind(userPhone, limit)
+      .all<TransactionRow>();
+    return res.results.map(toDraftRecord);
   }
 
   async findDuplicate(
@@ -264,34 +273,26 @@ class SupabaseDraftStore implements DraftStore {
     within: Date,
   ): Promise<DraftRecord | null> {
     // Mirrors isDuplicateMatch: invoice-number branch, then vendor + amount.
-    const base = {
-      select: DRAFT_COLUMNS,
-      user_phone: `eq.${userPhone}`,
-      status: "in.(logged,paid)",
-      confirmed_at: `gte.${within.toISOString()}`,
-    };
-
     const inv = extraction.invoice_number.value;
     if (inv !== null) {
-      const rows = await this.rest.select<TransactionRow>("transactions", {
-        ...base,
-        invoice_number: `eq.${inv}`,
-        limit: "1",
-      });
-      const row = rows[0];
+      const row = await this.db
+        .prepare(
+          `select ${DRAFT_COLUMNS} from transactions where user_phone = ? and status in ('logged', 'paid') and confirmed_at >= ? and invoice_number = ? limit 1`,
+        )
+        .bind(userPhone, within.toISOString(), inv)
+        .first<TransactionRow>();
       if (row) return toDraftRecord(row);
     }
 
     const vendor = extraction.vendor.value;
     const amount = extraction.amount.value;
     if (vendor !== null && amount !== null) {
-      const rows = await this.rest.select<TransactionRow>("transactions", {
-        ...base,
-        vendor: `eq.${vendor}`,
-        amount: `eq.${amount}`,
-        limit: "1",
-      });
-      const row = rows[0];
+      const row = await this.db
+        .prepare(
+          `select ${DRAFT_COLUMNS} from transactions where user_phone = ? and status in ('logged', 'paid') and confirmed_at >= ? and vendor = ? and amount = ? limit 1`,
+        )
+        .bind(userPhone, within.toISOString(), vendor, amount)
+        .first<TransactionRow>();
       if (row) return toDraftRecord(row);
     }
 
@@ -299,42 +300,40 @@ class SupabaseDraftStore implements DraftStore {
   }
 
   async softDeleteLogged(id: string): Promise<void> {
-    await this.rest.update("transactions", { status: "deleted" }, { id: `eq.${id}` });
+    await this.db.prepare("update transactions set status = 'deleted' where id = ?").bind(id).run();
   }
 
   async findNudgeDue(now: Date, nudgeWindowMs: number): Promise<DraftRecord[]> {
     const windowEnd = new Date(now.getTime() + nudgeWindowMs);
-    // Same column twice → one `and=(...)` expression (PostgREST has one key per column).
-    const range = `(flow_expires_at.gt.${now.toISOString()},flow_expires_at.lte.${windowEnd.toISOString()})`;
-    const rows = await this.rest.select<TransactionRow>("transactions", {
-      select: DRAFT_COLUMNS,
-      status: "eq.draft",
-      flow_nudged_at: "is.null",
-      and: range,
-      flow_state: "in.(awaiting_confirm,editing_amount,editing_vendor,editing_date)",
-    });
-    return rows.map(toDraftRecord);
+    const res = await this.db
+      .prepare(
+        `select ${DRAFT_COLUMNS} from transactions
+         where status = 'draft' and flow_nudged_at is null
+           and flow_expires_at > ? and flow_expires_at <= ?
+           and flow_state in ('awaiting_confirm', 'editing_amount', 'editing_vendor', 'editing_date')`,
+      )
+      .bind(now.toISOString(), windowEnd.toISOString())
+      .all<TransactionRow>();
+    return res.results.map(toDraftRecord);
   }
 
   async markNudged(id: string, nudgedAt: Date): Promise<void> {
-    await this.rest.update("transactions", { flow_nudged_at: nudgedAt.toISOString() }, { id: `eq.${id}` });
+    await this.db.prepare("update transactions set flow_nudged_at = ? where id = ?").bind(nudgedAt.toISOString(), id).run();
   }
 
   async expireDue(now: Date): Promise<number> {
-    return this.rest.updateCount(
-      "transactions",
-      { status: "expired", flow_state: null },
-      { status: "eq.draft", flow_expires_at: `lte.${now.toISOString()}` },
-    );
+    const res = await this.db
+      .prepare("update transactions set status = 'expired', flow_state = null where status = 'draft' and flow_expires_at <= ?")
+      .bind(now.toISOString())
+      .run();
+    return res.meta.changes;
   }
 
   private async getRow(id: string): Promise<TransactionRow | null> {
-    const rows = await this.rest.select<TransactionRow>("transactions", {
-      select: DRAFT_COLUMNS,
-      id: `eq.${id}`,
-      limit: "1",
-    });
-    return rows[0] ?? null;
+    return this.db
+      .prepare(`select ${DRAFT_COLUMNS} from transactions where id = ?`)
+      .bind(id)
+      .first<TransactionRow>();
   }
 }
 
@@ -345,14 +344,14 @@ function toDraftRecord(row: TransactionRow): DraftRecord {
     waMessageId: row.wa_message_id,
     flowState: row.flow_state,
     flowExpiresAt: new Date(row.flow_expires_at ?? row.created_at),
-    imageUrls: Array.isArray(row.image_urls) ? (row.image_urls as string[]) : [],
+    imageUrls: parseJson<string[]>(row.image_urls, []),
     createdAt: new Date(row.created_at),
     status: row.status,
-    extraction: row.raw_extraction ?? undefined,
+    extraction: row.raw_extraction ? parseJson<BillExtraction | null>(row.raw_extraction, null) ?? undefined : undefined,
     gateLevel: row.gate_level ?? undefined,
-    machineRead: row.machine_read ?? undefined,
+    machineRead: row.machine_read === null ? undefined : row.machine_read === 1,
     confirmedAt: row.confirmed_at ? new Date(row.confirmed_at) : undefined,
-    autoLogged: row.auto_logged ?? undefined,
+    autoLogged: row.auto_logged === null ? undefined : row.auto_logged === 1,
     flowNudgedAt: row.flow_nudged_at ? new Date(row.flow_nudged_at) : undefined,
   };
 }

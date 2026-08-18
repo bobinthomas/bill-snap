@@ -1,12 +1,15 @@
 /**
- * /dev/dashboard — analytics over the demo user's logged bills (DEV-only,
- * gated by config.devDemo like the /dev/demo console). Reads the SAME store
- * the demo console writes to, so bills confirmed in the chat show up here, and
- * `seedDemoBills` logs a few realistic bills through the real extraction
- * pipeline so the analytics have data to show without typing a week of bills.
+ * /dev/dashboard — analytics over a user's logged bills (DEV-only, gated by
+ * config.devDemo like the /dev/demo console). Defaults to the demo user; the
+ * webapp passes ?device= so the mobile flow's bills show up here too. Reads
+ * the SAME store the flow writes to, so bills confirmed in the chat or the
+ * webapp show up, and `seedDemoBills` logs a few realistic bills through the
+ * real extraction pipeline so the analytics have data to show without typing.
  */
 import type { AppConfig } from "../config";
+import type { CloudBindings } from "../bindings";
 import type { DraftRecord } from "../db/drafts";
+import { mergeKnownVendors } from "../extraction/regex";
 import { demoDeps, DEMO_PHONE } from "./demo";
 
 export interface CategoryStat {
@@ -32,6 +35,9 @@ export interface LoggedBill {
   confirmedAt: string; // ISO
   date: string | null; // bill date from the extraction
   vendor: string | null;
+  /** The known vendor a mangled reading was canonicalised to (§5.3 vendor
+   *  cleanup) — lets the accountant see a name was machine-resolved, not read. */
+  vendorResolvedTo: string | null;
   category: string;
   amount: number | null;
   gst: number | null;
@@ -50,7 +56,10 @@ export interface DashboardFilters {
 }
 
 export interface DashboardData {
-  persistence: "supabase" | "in-memory";
+  persistence: "d1" | "in-memory";
+  /** Known-vendor list (seed + learned from this user's logged bills) that
+   *  canonicalises mangled merchant names at extraction time. */
+  knownVendors: string[];
   totals: { count: number; amount: number; gst: number; autoLogged: number; manual: number };
   categories: CategoryStat[];
   vendors: VendorStat[];
@@ -85,8 +94,8 @@ const SEED_TEXTS = [
  * run uses a fresh timestamp in the idempotency key, so clicking seed twice
  * doubles the data rather than erroring — it's a demo affordance.
  */
-export async function seedDemoBills(config: AppConfig): Promise<void> {
-  const deps = demoDeps(config);
+export async function seedDemoBills(config: AppConfig, bindings?: CloudBindings): Promise<void> {
+  const deps = demoDeps(config, undefined, bindings);
   const stamp = Date.now();
   for (let i = 0; i < SEED_TEXTS.length; i++) {
     const text = SEED_TEXTS[i]!;
@@ -120,9 +129,11 @@ const vendorOf = (b: DraftRecord) => b.extraction?.vendor.value ?? null;
 export async function dashboardData(
   config: AppConfig,
   filters: DashboardFilters = {},
+  bindings?: CloudBindings,
+  userPhone: string = DEMO_PHONE,
 ): Promise<DashboardData> {
-  const deps = demoDeps(config);
-  const bills = await deps.drafts.listLogged(DEMO_PHONE);
+  const deps = demoDeps(config, undefined, bindings);
+  const bills = await deps.drafts.listLogged(userPhone);
 
   const months = [...new Set(bills.map((b) => b.confirmedAt?.toISOString().slice(0, 7)))]
     .filter((m): m is string => m !== undefined)
@@ -174,8 +185,13 @@ export async function dashboardData(
   const byAmount = <T extends { amount: number }>(xs: T[]): T[] =>
     [...xs].sort((x, y) => y.amount - x.amount);
 
+  // The same merge the webapp/demo extraction uses — seed + vendors learned
+  // from logged bills, so the dashboard shows how the list grows.
+  const knownVendors = mergeKnownVendors(bills.map((b) => b.extraction?.vendor.value ?? null));
+
   return {
-    persistence: config.supabase.url && config.supabase.serviceRoleKey ? "supabase" : "in-memory",
+    persistence: bindings?.db ? "d1" : "in-memory",
+    knownVendors,
     totals: {
       count: scoped.length,
       amount,
@@ -240,6 +256,7 @@ function toLoggedBill(b: DraftRecord): LoggedBill {
     confirmedAt: (b.confirmedAt ?? b.createdAt).toISOString(),
     date: b.extraction?.date.value ?? null,
     vendor: b.extraction?.vendor.value ?? null,
+    vendorResolvedTo: b.extraction?.vendor_resolved_to?.value ?? null,
     category: categoryOf(b),
     amount: b.extraction?.amount.value ?? null,
     gst: b.extraction?.gst.value ?? null,
@@ -262,6 +279,7 @@ export function billsToCsv(bills: LoggedBill[]): string {
     "Logged",
     "Bill date",
     "Vendor",
+    "Vendor resolved to",
     "Category",
     "Amount",
     "GST",
@@ -275,6 +293,7 @@ export function billsToCsv(bills: LoggedBill[]): string {
     b.confirmedAt.slice(0, 10),
     b.date ?? "",
     b.vendor ?? "",
+    b.vendorResolvedTo ?? "",
     b.category,
     b.amount === null ? "" : b.amount.toFixed(2),
     b.gst === null ? "" : b.gst.toFixed(2),
@@ -361,6 +380,7 @@ const DASHBOARD_PAGE = `<!doctype html>
   <header>
     <h1>BillSnap — dashboard</h1>
     <span id="badge"></span>
+    <span id="known"></span>
     <a href="/dev/demo">💬 Demo console</a>
     <a href="/">🏠 Landing</a>
   </header>
@@ -382,7 +402,7 @@ const DASHBOARD_PAGE = `<!doctype html>
     </div>
     <section style="margin-top:12px;"><h2 id="days-title">Last 7 days</h2><div id="days"></div></section>
     <section style="margin-top:12px;"><h2>Recent bills</h2><div id="recent"></div></section>
-    <div id="hint">Bills confirmed in the <a href="/dev/demo">demo console</a> appear here automatically. <code>seed</code> logs a week of realistic bills through the real extraction pipeline. Persistence is in-memory until Supabase is configured.</div>
+    <div id="hint">Bills confirmed in the <a href="/dev/demo">demo console</a> appear here automatically. <code>seed</code> logs a week of realistic bills through the real extraction pipeline. Persistence is in-memory until local D1 is configured (<code>npm run dev:full</code>).</div>
   </main>
 <script>
   const $ = (id) => document.getElementById(id);
@@ -412,13 +432,23 @@ const DASHBOARD_PAGE = `<!doctype html>
       bills.map((b) => {
         const when = new Date(b.confirmedAt).toISOString().slice(0, 10);
         const tag = b.autoLogged ? '<span class="tag auto">auto</span>' : '<span class="tag manual">manual</span>';
-        return "<tr><td>" + when + "</td><td>" + esc(b.date || "—") + "</td><td>" + esc(b.vendor || "—") + "</td><td>" +
-          esc(b.category) + '</td><td class="num">' + money(b.amount) + '</td><td class="num">' + money(b.gst) +
-          "</td><td>" + esc(b.invoiceNumber || "—") + "</td><td>" + esc(b.abn || "—") + "</td><td>" + tag + "</td></tr>";
+    const resolved = b.vendorResolvedTo
+      ? ' <span class="tag manual" title="canonicalised from a mangled OCR reading to a known merchant">resolved</span>'
+      : "";
+    return "<tr><td>" + when + "</td><td>" + esc(b.date || "—") + "</td><td>" + esc(b.vendor || "—") + resolved + "</td><td>" +
+      esc(b.category) + '</td><td class="num">' + money(b.amount) + '</td><td class="num">' + money(b.gst) +
+      "</td><td>" + esc(b.invoiceNumber || "—") + "</td><td>" + esc(b.abn || "—") + "</td><td>" + tag + "</td></tr>";
       }).join("") + "</tbody></table>";
   }
   function render(d) {
     $("badge").textContent = "persistence: " + d.persistence + " · " + d.totals.count + " logged" + (d.filters.month ? " · " + d.filters.month : "");
+    const known = (d.knownVendors || []).filter((v) => !/^(telstra|origin energy|bunnings|caltex|homebase|rajesh|reliance hypermart limited|hdfc bank|gujarat freight tools)$/i.test(v));
+    $("known").textContent = known.length ? "🧠 learned vendors: " + known.join(", ") : "";
+    $("known").style.color = "#00a884";
+    $("known").style.fontSize = "12px";
+    $("hint").innerHTML = d.persistence === "d1"
+      ? 'Bills confirmed in the <a href="/dev/demo">demo console</a> are written to the local D1 store — they survive page reloads. <code>seed</code> logs a week of realistic bills through the real extraction pipeline.'
+      : 'Bills confirmed in the <a href="/dev/demo">demo console</a> appear here automatically. <code>seed</code> logs a week of realistic bills. Persistence is in-memory — start <code>npm run dev:full</code> (local D1 + R2) and demo entries will survive reloads.';
     $("cards").innerHTML = [
       ["Bills logged", d.totals.count, ""],
       ["Total spend", money(d.totals.amount), ""],
@@ -451,6 +481,10 @@ const DASHBOARD_PAGE = `<!doctype html>
     if (m) p.set("month", m);
     if (c) p.set("category", c);
     if (v) p.set("vendor", v);
+    // Carry the device scope from the page URL (the webapp links here with
+    // ?device=) so the data fetch sees the same user the page was opened for.
+    const dev = new URLSearchParams(location.search).get("device");
+    if (dev) p.set("device", dev);
     return p;
   }
   async function refresh() {

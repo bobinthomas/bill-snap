@@ -18,10 +18,6 @@ export interface AppConfig {
   aiVisionModel?: string;
   /** DEV-only: use the deterministic mock AI extractor instead of the real binding (GEMINI_MOCK=true). */
   geminiMock: boolean;
-  supabase: {
-    url?: string;
-    serviceRoleKey?: string;
-  };
   /** Local-only: enables the /dev/* demo console (never set in production). */
   devDemo: boolean;
   extraction: {
@@ -56,10 +52,6 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     aiModel: env.AI_MODEL,
     aiVisionModel: env.AI_VISION_MODEL,
     geminiMock: env.GEMINI_MOCK === "true",
-    supabase: {
-      url: env.SUPABASE_URL,
-      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
-    },
     devDemo: env.DEV_DEMO === "true",
     extraction: {
       amountHigh: num(env.EXTRACTION_AMOUNT_HIGH, 0.9),

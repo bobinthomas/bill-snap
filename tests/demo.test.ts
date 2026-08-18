@@ -9,7 +9,7 @@ const ENV = { DEV_DEMO: "true" };
 interface DemoJson {
   messages: Array<{ from: "user" | "bot"; text: string }>;
   draft: { id: string; flowState: string | null; status: string } | null;
-  persistence: "supabase" | "in-memory";
+  persistence: "d1" | "in-memory";
   extractor?: string;
   lastRead?: string | null;
 }

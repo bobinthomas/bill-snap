@@ -3,13 +3,16 @@
  *
  * - `onboard` auto-creates the `users` row (phone), a `businesses` row with
  *   sensible defaults, and the owner `memberships` row — nothing blocks the
- *   first bill.
+ *   first bill. Idempotent: a retried first message returns the existing rows.
  * - `updateBusiness` powers the `setup` wizard (name → timezone → GST).
  * - `getSetupStep` / `setSetupStep` hold the wizard position per phone (§4.5);
- *   stored on `users.setup_step` (0001_schema.sql).
+ *   stored on `users.setup_step`.
+ *
+ * Backed by Cloudflare D1 (SQLite). IDs are generated with crypto.randomUUID()
+ * in JS (D1 has no gen_random_uuid); timestamps are ISO strings (lexicographic
+ * order matches Postgres timestamptz semantics the flows rely on).
  */
-import type { AppConfig } from "../config";
-import { createRestClient, type RestClient } from "./client";
+import type { D1Like } from "./d1";
 import type { UserRecord } from "./users";
 
 export interface BusinessRecord {
@@ -50,8 +53,8 @@ interface BusinessRow {
   name: string;
   abn: string | null;
   timezone: string;
-  gst_registered: boolean;
-  auto_save: boolean;
+  gst_registered: number;
+  auto_save: number;
   created_at: string;
 }
 
@@ -62,18 +65,12 @@ interface UserRow {
   created_at: string;
 }
 
-export function createSupabaseBusinessStore(
-  config: AppConfig,
-  fetchFn?: typeof fetch,
-): BusinessStore | null {
-  if (!config.supabase.url || !config.supabase.serviceRoleKey) return null;
-  return new SupabaseBusinessStore(
-    createRestClient({ url: config.supabase.url, key: config.supabase.serviceRoleKey, fetchFn }),
-  );
+export function createD1BusinessStore(db: D1Like): BusinessStore {
+  return new D1BusinessStore(db);
 }
 
-class SupabaseBusinessStore implements BusinessStore {
-  constructor(private readonly rest: RestClient) {}
+class D1BusinessStore implements BusinessStore {
+  constructor(private readonly db: D1Like) {}
 
   async onboard(phoneNumber: string): Promise<OnboardedUser> {
     // Already onboarded → return existing (idempotent, §4.5).
@@ -84,56 +81,74 @@ class SupabaseBusinessStore implements BusinessStore {
     }
 
     // Business first (users.business_id FK), then the user, then the owner
-    // membership. `ignore-duplicates` keeps each step safe under concurrent
+    // membership. INSERT OR IGNORE keeps each step safe under concurrent
     // first-message deliveries (phone_number / membership are unique keys).
-    const businessRows = await this.rest.insert<BusinessRow>(
-      "businesses",
-      {
-        name: "My Business",
-        timezone: "Australia/Sydney",
-        gst_registered: true,
-        auto_save: true,
-      },
-      { returnRepresentation: true },
-    );
-    const businessRow = businessRows?.[0];
-    if (!businessRow) throw new Error("onboard: failed to create business");
+    const businessId = crypto.randomUUID();
+    await this.db
+      .prepare(
+        "insert into businesses (id, name, timezone, gst_registered, auto_save) values (?, ?, ?, 1, 1)",
+      )
+      .bind(businessId, "My Business", "Australia/Sydney")
+      .run();
 
-    await this.rest.insert<UserRow>(
-      "users",
-      { phone_number: phoneNumber, business_id: businessRow.id },
-      { ignoreDuplicates: true },
-    );
+    await this.db
+      .prepare("insert or ignore into users (phone_number, business_id) values (?, ?)")
+      .bind(phoneNumber, businessId)
+      .run();
 
-    await this.rest.insert(
-      "memberships",
-      { business_id: businessRow.id, user_phone: phoneNumber, role: "owner" },
-      { ignoreDuplicates: true },
-    );
+    await this.db
+      .prepare(
+        "insert or ignore into memberships (id, business_id, user_phone, role) values (?, ?, ?, 'owner')",
+      )
+      .bind(crypto.randomUUID(), businessId, phoneNumber)
+      .run();
 
     const userRow = (await this.findUserRow(phoneNumber))!;
-    return { user: toUserRecord(userRow), business: toBusinessRecord(businessRow) };
+    const business = (await this.findBusiness(businessId))!;
+    return { user: toUserRecord(userRow), business };
   }
 
   async findBusiness(businessId: string): Promise<BusinessRecord | null> {
-    const rows = await this.rest.select<BusinessRow>("businesses", {
-      id: `eq.${businessId}`,
-      select: "id,name,abn,timezone,gst_registered,auto_save",
-      limit: "1",
-    });
-    const row = rows[0];
+    const row = await this.db
+      .prepare(
+        "select id, name, abn, timezone, gst_registered, auto_save, created_at from businesses where id = ?",
+      )
+      .bind(businessId)
+      .first<BusinessRow>();
     return row ? toBusinessRecord(row) : null;
   }
 
   async updateBusiness(businessId: string, patch: BusinessPatch): Promise<BusinessRecord> {
-    const body: Record<string, unknown> = {};
-    if (patch.name !== undefined) body.name = patch.name;
-    if (patch.timezone !== undefined) body.timezone = patch.timezone;
-    if (patch.gstRegistered !== undefined) body.gst_registered = patch.gstRegistered;
-    if (patch.autoSave !== undefined) body.auto_save = patch.autoSave;
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    if (patch.name !== undefined) {
+      sets.push("name = ?");
+      values.push(patch.name);
+    }
+    if (patch.timezone !== undefined) {
+      sets.push("timezone = ?");
+      values.push(patch.timezone);
+    }
+    if (patch.gstRegistered !== undefined) {
+      sets.push("gst_registered = ?");
+      values.push(patch.gstRegistered ? 1 : 0);
+    }
+    if (patch.autoSave !== undefined) {
+      sets.push("auto_save = ?");
+      values.push(patch.autoSave ? 1 : 0);
+    }
+    if (sets.length === 0) {
+      const existing = await this.findBusiness(businessId);
+      if (!existing) throw new Error(`updateBusiness: business ${businessId} not found`);
+      return existing;
+    }
 
-    const rows = await this.rest.update<BusinessRow>("businesses", body, { id: `eq.${businessId}` });
-    const row = rows?.[0];
+    const row = await this.db
+      .prepare(
+        `update businesses set ${sets.join(", ")} where id = ? returning id, name, abn, timezone, gst_registered, auto_save, created_at`,
+      )
+      .bind(...values, businessId)
+      .first<BusinessRow>();
     if (!row) throw new Error(`updateBusiness: business ${businessId} not found`);
     return toBusinessRecord(row);
   }
@@ -146,16 +161,17 @@ class SupabaseBusinessStore implements BusinessStore {
   }
 
   async setSetupStep(phoneNumber: string, step: SetupStep | null): Promise<void> {
-    await this.rest.update("users", { setup_step: step }, { phone_number: `eq.${phoneNumber}` });
+    await this.db
+      .prepare("update users set setup_step = ? where phone_number = ?")
+      .bind(step, phoneNumber)
+      .run();
   }
 
   private async findUserRow(phoneNumber: string): Promise<UserRow | null> {
-    const rows = await this.rest.select<UserRow>("users", {
-      phone_number: `eq.${phoneNumber}`,
-      select: "phone_number,business_id,setup_step,created_at",
-      limit: "1",
-    });
-    return rows[0] ?? null;
+    return this.db
+      .prepare("select phone_number, business_id, setup_step, created_at from users where phone_number = ?")
+      .bind(phoneNumber)
+      .first<UserRow>();
   }
 }
 
@@ -165,8 +181,8 @@ function toBusinessRecord(row: BusinessRow): BusinessRecord {
     name: row.name,
     abn: row.abn,
     timezone: row.timezone,
-    gstRegistered: row.gst_registered,
-    autoSave: row.auto_save,
+    gstRegistered: row.gst_registered === 1,
+    autoSave: row.auto_save === 1,
   };
 }
 

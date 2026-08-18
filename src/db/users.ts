@@ -1,9 +1,11 @@
 /**
  * users table access (§5.5). The router resolves known vs unknown users through
- * this interface so flows are testable without Supabase (M3).
+ * this interface so flows are testable without a live D1 (M3).
+ *
+ * Backed by Cloudflare D1 (SQLite) — the binding satisfies the narrow D1Like
+ * interface; tests pass a node:sqlite shim.
  */
-import type { AppConfig } from "../config";
-import { createRestClient, type RestClient } from "./client";
+import type { D1Like } from "./d1";
 
 export interface UserRecord {
   phoneNumber: string;
@@ -18,35 +20,29 @@ export interface UserStore {
 interface UserRow {
   phone_number: string;
   business_id: string | null;
-  setup_step: string | null;
   created_at: string;
 }
 
-export function createSupabaseUserStore(
-  config: AppConfig,
-  fetchFn?: typeof fetch,
-): UserStore | null {
-  if (!config.supabase.url || !config.supabase.serviceRoleKey) return null;
-  return new SupabaseUserStore(
-    createRestClient({ url: config.supabase.url, key: config.supabase.serviceRoleKey, fetchFn }),
-  );
+export function createD1UserStore(db: D1Like): UserStore {
+  return new D1UserStore(db);
 }
 
-class SupabaseUserStore implements UserStore {
-  constructor(private readonly rest: RestClient) {}
+class D1UserStore implements UserStore {
+  constructor(private readonly db: D1Like) {}
 
   async findUser(phoneNumber: string): Promise<UserRecord | null> {
-    const rows = await this.rest.select<UserRow>("users", {
-      phone_number: `eq.${phoneNumber}`,
-      select: "phone_number,business_id,created_at",
-      limit: "1",
-    });
-    const row = rows[0];
-    if (!row) return null;
-    return {
-      phoneNumber: row.phone_number,
-      businessId: row.business_id,
-      createdAt: new Date(row.created_at),
-    };
+    const row = await this.db
+      .prepare("select phone_number, business_id, created_at from users where phone_number = ?")
+      .bind(phoneNumber)
+      .first<UserRow>();
+    return row ? toUserRecord(row) : null;
   }
+}
+
+function toUserRecord(row: UserRow): UserRecord {
+  return {
+    phoneNumber: row.phone_number,
+    businessId: row.business_id,
+    createdAt: new Date(row.created_at),
+  };
 }

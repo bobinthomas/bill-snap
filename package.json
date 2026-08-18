@@ -12,6 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke": "vitest run tests/smoke.test.ts",
+    "db:seed": "wrangler d1 execute bill-snap --local --file=d1/seed.sql",
+    "db:seed:remote": "wrangler d1 execute bill-snap --remote --file=d1/seed.sql",
     "eval": "vitest run --config vitest.eval.config.ts eval/harness.run.ts",
     "sweep": "vitest run --config vitest.eval.config.ts eval/sweep.run.ts",
     "eval:ocr": "vitest run --config vitest.eval.config.ts eval/ocr.run.ts"

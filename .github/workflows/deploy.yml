@@ -35,27 +35,45 @@ jobs:
 
       - run: npm ci
 
+      # Apply the committed D1 migrations to the production database BEFORE
+      # deploying the code that reads them. One-time setup (outside CI):
+      #   wrangler d1 create bill-snap        → paste the id into wrangler.deploy.toml
+      #   wrangler r2 bucket create bill-snap-bills
+      - name: Apply D1 migrations (remote)
+        run: npx wrangler d1 migrations apply bill-snap --remote
+
       # Worker secrets live in Cloudflare, not wrangler.toml. Values come from
       # GitHub Actions secrets; a missing secret fails the job before anything
       # ships without it. Passed via env (never inlined) so shell interpolation
-      # can't mangle tokens.
+      # can't mangle tokens. (D1/R2 need no secrets — they are bindings.)
+      #
+      # Guard: `secret put` with an empty value would OVERWRITE the live worker
+      # secret with "" — so any GitHub secret that isn't configured yet is
+      # SKIPPED, leaving whatever is already set in Cloudflare intact. Run the
+      # deploy first, then add the GitHub secret and let a later push fill it.
       - name: Set worker secrets
         env:
           WHATSAPP_VERIFY_TOKEN: ${{ secrets.WHATSAPP_VERIFY_TOKEN }}
           WHATSAPP_APP_SECRET: ${{ secrets.WHATSAPP_APP_SECRET }}
           WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
           WHATSAPP_TOKEN: ${{ secrets.WHATSAPP_TOKEN }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          echo "$WHATSAPP_VERIFY_TOKEN" | npx wrangler secret put WHATSAPP_VERIFY_TOKEN
-          echo "$WHATSAPP_APP_SECRET" | npx wrangler secret put WHATSAPP_APP_SECRET
-          echo "$WHATSAPP_PHONE_NUMBER_ID" | npx wrangler secret put WHATSAPP_PHONE_NUMBER_ID
-          echo "$WHATSAPP_TOKEN" | npx wrangler secret put WHATSAPP_TOKEN
-          echo "$SUPABASE_URL" | npx wrangler secret put SUPABASE_URL
-          echo "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+          set -euo pipefail
+          put() {
+            local name="$1" value="$2"
+            if [ -n "$value" ]; then
+              echo "$value" | npx wrangler secret put "$name"
+            else
+              echo "::warning::SKIP $name — GitHub secret not set; leaving the current Cloudflare value untouched"
+            fi
+          }
+          put WHATSAPP_VERIFY_TOKEN "$WHATSAPP_VERIFY_TOKEN"
+          put WHATSAPP_APP_SECRET "$WHATSAPP_APP_SECRET"
+          put WHATSAPP_PHONE_NUMBER_ID "$WHATSAPP_PHONE_NUMBER_ID"
+          put WHATSAPP_TOKEN "$WHATSAPP_TOKEN"
 
-      # wrangler.deploy.toml carries the Workers AI binding (kept out of
-      # wrangler.toml so local dev/CI never needs a Cloudflare login).
+      # wrangler.deploy.toml carries the Workers AI binding + D1/R2 bindings
+      # (kept out of wrangler.toml so local dev/CI never needs a Cloudflare
+      # login).
       - name: Deploy to Cloudflare Workers
         run: npx wrangler deploy -c wrangler.deploy.toml

@@ -4,21 +4,23 @@
  * production). No Meta, no phone: the demo messenger records what the bot
  * would have sent and serves fixture image bytes for the media download.
  *
- * Persistence: the real Supabase stores when configured, otherwise an
- * in-memory singleton (module scope keeps multi-turn state alive across HTTP
- * requests inside the dev isolate).
+ * Persistence: the real D1 + R2 stores when the bindings are present, otherwise
+ * an in-memory singleton (module scope keeps multi-turn state alive across HTTP
+ * requests inside the dev isolate). Everything stays inside Cloudflare (§5.5).
  */
 import type { AppConfig } from "../config";
-import { createSupabaseBusinessStore, type BusinessStore } from "../db/businesses";
-import { createSupabaseDraftStore, type DraftStore } from "../db/drafts";
-import { createSupabaseUserStore, type UserStore } from "../db/users";
+import type { CloudBindings } from "../bindings";
+import { createD1BusinessStore, type BusinessStore } from "../db/businesses";
+import { createD1DraftStore, type DraftStore } from "../db/drafts";
+import { createD1UserStore, type UserStore } from "../db/users";
 import { createExtractionService, type ExtractionOutcome, type ExtractionService } from "../extraction/pipeline";
+import { mergeKnownVendors } from "../extraction/regex";
 import type { WorkersAi } from "../extraction/workers-ai";
 import type { DownloadedMedia, Messenger } from "../messaging/whatsapp";
-import { createSupabaseBillStorage, type BillStorage } from "../storage/bills";
+import { createR2BillStorage, type BillStorage } from "../storage/bills";
 import type { InboundEvent } from "../types";
 import { route, type RouteDeps } from "../webhook/router";
-import { createMemoryStack, type MemoryStack } from "./memory";
+import { getSharedMemoryStack, resetSharedMemoryStack } from "./memory";
 
 export const DEMO_PHONE = "61400000111";
 export const DEMO_MEDIA_ID = "DEMO-MEDIA";
@@ -34,7 +36,6 @@ export interface StoredDemoMedia {
   fileName: string;
 }
 
-let memory: MemoryStack | null = null;
 const messages: DemoMessage[] = [];
 /** Source of the most recent photo extraction — shown in the badge so a mock/OCR
  *  reading is never mistaken for a real Workers AI read. */
@@ -96,11 +97,6 @@ export function getDemoMedia(mediaId: string): StoredDemoMedia | undefined {
   return uploadedMedia.get(mediaId);
 }
 
-function stack(): MemoryStack {
-  memory ??= createMemoryStack();
-  return memory;
-}
-
 class DemoMessenger implements Messenger {
   async sendText(_to: string, text: string): Promise<void> {
     messages.push({ from: "bot", text });
@@ -116,12 +112,13 @@ class DemoMessenger implements Messenger {
   }
 }
 
-/** The demo's own deps: real Supabase stores when configured, else in-memory. */
-export function demoDeps(config: AppConfig, ai?: WorkersAi): RouteDeps {
-  const users: UserStore = createSupabaseUserStore(config) ?? stack().users;
-  const businesses: BusinessStore = createSupabaseBusinessStore(config) ?? stack().businesses;
-  const drafts: DraftStore = createSupabaseDraftStore(config) ?? stack().drafts;
-  const storage: BillStorage = createSupabaseBillStorage(config) ?? stack().storage;
+/** The demo's own deps: real D1 + R2 stores when bindings present, else in-memory. */
+export function demoDeps(config: AppConfig, ai?: WorkersAi, bindings?: CloudBindings): RouteDeps {
+  const memory = getSharedMemoryStack();
+  const users: UserStore = bindings?.db ? createD1UserStore(bindings.db) : memory.users;
+  const businesses: BusinessStore = bindings?.db ? createD1BusinessStore(bindings.db) : memory.businesses;
+  const drafts: DraftStore = bindings?.db ? createD1DraftStore(bindings.db) : memory.drafts;
+  const storage: BillStorage = bindings?.bills ? createR2BillStorage(bindings.bills) : memory.storage;
   const inner = createExtractionService(config, ai);
   return {
     users,
@@ -129,7 +126,12 @@ export function demoDeps(config: AppConfig, ai?: WorkersAi): RouteDeps {
     drafts,
     extraction: {
       async run(input) {
-        const outcome = await inner.run(input);
+        // Learn vendors from the demo phone's logged bills (the dashboard's
+        // seeded bills and confirmed demo bills) so familiar merchants are
+        // canonicalised on re-read — same stateless extraction underneath.
+        const logged = await drafts.listLogged(DEMO_PHONE, 200);
+        const learned = logged.map((d) => d.extraction?.vendor.value ?? null);
+        const outcome = await inner.run({ ...input, knownVendors: mergeKnownVendors(learned) });
         lastRead = outcome.source;
         // OCR reads echo back into the chat: the raw lines next to the amount
         // the picker chose, so the total-vs-subtotal decision is visible.
@@ -160,6 +162,7 @@ export async function simulatePhoto(
   fileName?: string,
   ocrText?: string,
   ocrConfig?: string,
+  bindings?: CloudBindings,
 ): Promise<void> {
   lastOcrConfig = ocrConfig ?? null;
   const event: InboundEvent = {
@@ -174,10 +177,15 @@ export async function simulatePhoto(
     from: "user",
     text: fileName ? `📷 (bill photo sent: ${fileName})` : "📷 (bill photo sent)",
   });
-  await route(event, demoDeps(config, ai));
+  await route(event, demoDeps(config, ai, bindings));
 }
 
-export async function simulateText(config: AppConfig, ai: WorkersAi | undefined, text: string): Promise<void> {
+export async function simulateText(
+  config: AppConfig,
+  ai: WorkersAi | undefined,
+  text: string,
+  bindings?: CloudBindings,
+): Promise<void> {
   const event: InboundEvent = {
     userPhone: DEMO_PHONE,
     waMessageId: `wamid.demo.${Date.now()}`,
@@ -186,7 +194,7 @@ export async function simulateText(config: AppConfig, ai: WorkersAi | undefined,
     text,
   };
   messages.push({ from: "user", text });
-  await route(event, demoDeps(config, ai));
+  await route(event, demoDeps(config, ai, bindings));
 }
 
 export interface DemoState {
@@ -207,15 +215,15 @@ export interface DemoState {
       invoice_number: string | null;
     };
   } | null;
-  persistence: "supabase" | "in-memory";
+  persistence: "d1" | "in-memory";
   /** Which extractor reads uploaded photos — "mock" is CANNED, never a real read. */
   extractor: string;
   /** Actual source of the most recent photo extraction (what the badge shows). */
   lastRead: ExtractionOutcome["source"] | null;
 }
 
-export async function demoState(config: AppConfig, ai?: WorkersAi): Promise<DemoState> {
-  const deps = demoDeps(config, ai);
+export async function demoState(config: AppConfig, ai?: WorkersAi, bindings?: CloudBindings): Promise<DemoState> {
+  const deps = demoDeps(config, ai, bindings);
   const draft = await deps.drafts.findActiveDraft(DEMO_PHONE);
   return {
     messages,
@@ -239,7 +247,7 @@ export async function demoState(config: AppConfig, ai?: WorkersAi): Promise<Demo
             : undefined,
         }
       : null,
-    persistence: config.supabase.url && config.supabase.serviceRoleKey ? "supabase" : "in-memory",
+    persistence: bindings?.db ? "d1" : "in-memory",
     extractor: config.geminiMock
       ? "mock (canned)"
       : ai
@@ -249,9 +257,9 @@ export async function demoState(config: AppConfig, ai?: WorkersAi): Promise<Demo
   };
 }
 
-/** Test helper: clear the in-memory stack, message log, and uploaded media. */
+/** Test helper: clear the shared in-memory stack, message log, and uploaded media. */
 export function resetDemo(): void {
-  memory = null;
+  resetSharedMemoryStack();
   messages.length = 0;
   uploadedMedia.clear();
   lastRead = null;
@@ -321,7 +329,7 @@ const DEMO_PAGE = `<!doctype html>
     }
     chat.scrollTop = chat.scrollHeight;
     const d = state.draft;
-    badge.textContent = (state.persistence === "supabase" ? "persistence: Supabase" : "persistence: in-memory") +
+    badge.textContent = (state.persistence === "d1" ? "persistence: D1 + R2" : "persistence: in-memory") +
       " · extractor: " + state.extractor +
       (state.lastRead ? " · last read: " + state.lastRead : "") +
       (d ? " · draft: " + d.flowState + " (" + d.status + (d.gateLevel ? ", " + d.gateLevel : "") + ")" : " · no active draft");
@@ -359,6 +367,57 @@ const DEMO_PAGE = `<!doctype html>
   let lastFile = null;
   let lastName = "";
   const retryBtn = document.getElementById("retry");
+  // Preprocess a photo for OCR: upscale small images and binarize with Otsu
+  // thresholding. Phone-compressed photos (e.g. a 232x299 JPEG) OCR as garbage
+  // raw; upscaling + binarization turns them into clean text.
+  async function preprocessForOcr(f) {
+    const url = URL.createObjectURL(f);
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    const w = img.naturalWidth || 1, h = img.naturalHeight || 1;
+    const target = 1200;
+    const scale = Math.min(4, Math.max(1, target / Math.max(w, h)));
+    const c = document.createElement("canvas");
+    c.width = Math.round(w * scale); c.height = Math.round(h * scale);
+    const ctx = c.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(url);
+    const d = ctx.getImageData(0, 0, c.width, c.height);
+    const px = d.data;
+    const gray = new Uint8Array(px.length / 4);
+    const hist = new Array(256).fill(0);
+    for (let i = 0, j = 0; i < px.length; i += 4, j++) {
+      const g = Math.round(0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]);
+      gray[j] = g; hist[g]++;
+    }
+    const total = gray.length;
+    let sum = 0;
+    for (let t = 0; t < 256; t++) sum += t * hist[t];
+    let sumB = 0, wB = 0, best = 0, otsu = 128;
+    for (let t = 0; t < 256; t++) {
+      wB += hist[t];
+      if (wB === 0) continue;
+      const wF = total - wB;
+      if (wF === 0) break;
+      sumB += t * hist[t];
+      const mB = sumB / wB, mF = (sum - sumB) / wF;
+      const between = wB * wF * (mB - mF) * (mB - mF);
+      if (between > best) { best = between; otsu = t; }
+    }
+    // Bias Otsu down (~0.75x, clamped): photos on textured backgrounds skew
+    // the histogram high and wash out faint digits. Verified on the HDFC
+    // receipt — reads "AMOUNT Rs 321.68" only with the biased threshold;
+    // 0.8x lands at 113 where the TOTAL line reads "48".
+    const thr = Math.max(90, Math.min(170, Math.round(otsu * 0.75)));
+    for (let i = 0, j = 0; i < px.length; i += 4, j++) {
+      const v = gray[j] > thr ? 255 : 0;
+      px[i] = px[i + 1] = px[i + 2] = v;
+    }
+    ctx.putImageData(d, 0, 0);
+    const blob = await new Promise((res) => c.toBlob(res, "image/png"));
+    return { blob, scale, threshold: thr };
+  }
   async function sendBill(f, name) {
     lastFile = f;
     lastName = name;
@@ -367,9 +426,11 @@ const DEMO_PAGE = `<!doctype html>
     photoBtn.textContent = "🔍 OCR reading image…";
     photoBtn.disabled = true;
     let ocrText = "";
+    let prep = null;
     try {
       if (window.Tesseract) {
-        const res = await window.Tesseract.recognize(f, "eng", cfg.opts);
+        prep = await preprocessForOcr(f);
+        const res = await window.Tesseract.recognize(prep.blob, "eng", cfg.opts);
         ocrText = (res && res.data && res.data.text) || "";
       }
     } catch (e) {
@@ -378,7 +439,9 @@ const DEMO_PAGE = `<!doctype html>
     const fd = new FormData();
     fd.append("file", f);
     if (ocrText.trim()) fd.append("ocrText", ocrText);
-    if (cfg.name !== "default") fd.append("ocrConfig", cfg.name);
+    const prepLabel = prep ? "preprocess " + prep.scale + "x/@" + prep.threshold : null;
+    const label = cfg.name !== "default" ? cfg.name : null;
+    if (label || prepLabel) fd.append("ocrConfig", [label, prepLabel].filter(Boolean).join(" · "));
     await fetch("/dev/demo/photo", { method: "POST", body: fd });
     ocrIndex++;
     fileInput.value = "";
