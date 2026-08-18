@@ -4,13 +4,19 @@
  * - `help` → command list
  * - `delete` → undo the last transaction within its window (§5.6/§5.8)
  * - `setup` → start the §4.5 settings wizard
+ * - `autosave on` / `autosave off` → the business's §5.8 auto-log opt-out —
+ *   off forces every bill (including high-confidence AI reads) onto the
+ *   confirm screen instead of auto-logging with only the undo window as a net.
  *
  * TODO: summary/find/NEXT and the manual-entry format (`wages 500 rajesh`).
  */
 import type { AppConfig } from "../config";
 import type { BusinessStore } from "../db/businesses";
 import type { DraftStore } from "../db/drafts";
+import type { UserStore } from "../db/users";
 import {
+  AUTOSAVE_OFF_TEXT,
+  AUTOSAVE_ON_TEXT,
   HELP_TEXT,
   SETUP_NAME_PROMPT,
   UNDONE_TEXT,
@@ -21,6 +27,7 @@ import {
 import type { InboundEvent } from "../types";
 
 export interface CommandDeps {
+  users: UserStore;
   drafts: DraftStore;
   businesses: BusinessStore;
   config: AppConfig;
@@ -38,8 +45,18 @@ export async function handleCommand(
     await deps.businesses.setSetupStep(event.userPhone, "name");
     return SETUP_NAME_PROMPT;
   }
+  if (text === "autosave on" || text === "autosave off") {
+    return setAutoSaveReply(event, deps, text === "autosave on");
+  }
 
   return UNKNOWN_COMMAND_TEXT;
+}
+
+async function setAutoSaveReply(event: InboundEvent, deps: CommandDeps, autoSave: boolean): Promise<string> {
+  const user = await deps.users.findUser(event.userPhone);
+  if (!user?.businessId) return UNKNOWN_COMMAND_TEXT;
+  await deps.businesses.updateBusiness(user.businessId, { autoSave });
+  return autoSave ? AUTOSAVE_ON_TEXT : AUTOSAVE_OFF_TEXT;
 }
 
 async function undoReply(event: InboundEvent, deps: CommandDeps): Promise<string> {

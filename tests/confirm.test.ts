@@ -5,6 +5,8 @@ import { classify } from "../src/extraction/gate";
 import { handleDraftReply } from "../src/flows/confirm";
 import { handleCommand } from "../src/flows/commands";
 import {
+  AUTOSAVE_OFF_TEXT,
+  AUTOSAVE_ON_TEXT,
   EDIT_AMOUNT_PROMPT,
   EDIT_DATE_PROMPT,
   EDIT_VENDOR_PROMPT,
@@ -264,7 +266,12 @@ describe("delete / undo (§5.6/§5.8 windows)", () => {
 
   it("nothing to undo when no transaction exists", async () => {
     const { deps, send } = makeDeps();
-    const reply = await handleCommand(textEvent("delete"), { drafts: deps.drafts, businesses: deps.businesses, config: deps.config });
+    const reply = await handleCommand(textEvent("delete"), {
+      users: deps.users,
+      drafts: deps.drafts,
+      businesses: deps.businesses,
+      config: deps.config,
+    });
     expect(reply).toBe(UNDO_NOTHING_TEXT);
     expect(send.sent).toHaveLength(0);
   });
@@ -272,21 +279,78 @@ describe("delete / undo (§5.6/§5.8 windows)", () => {
   it("undoes a confirm-path transaction within 5 minutes", async () => {
     const { store, deps } = makeDeps();
     await seedLogged(store, 2);
-    const reply = await handleCommand(textEvent("delete"), { drafts: deps.drafts, businesses: deps.businesses, config: deps.config });
+    const reply = await handleCommand(textEvent("delete"), {
+      users: deps.users,
+      drafts: deps.drafts,
+      businesses: deps.businesses,
+      config: deps.config,
+    });
     expect(reply).toBe(UNDONE_TEXT);
   });
 
   it("rejects a confirm-path transaction older than 5 minutes", async () => {
     const { store, deps } = makeDeps();
     await seedLogged(store, 10);
-    const reply = await handleCommand(textEvent("delete"), { drafts: deps.drafts, businesses: deps.businesses, config: deps.config });
+    const reply = await handleCommand(textEvent("delete"), {
+      users: deps.users,
+      drafts: deps.drafts,
+      businesses: deps.businesses,
+      config: deps.config,
+    });
     expect(reply).toBe(UNDO_WINDOW_TEXT);
   });
 
   it("allows the 24 h window for auto-logged transactions", async () => {
     const { store, deps } = makeDeps();
     await seedLogged(store, 10, true);
-    const reply = await handleCommand(textEvent("delete"), { drafts: deps.drafts, businesses: deps.businesses, config: deps.config });
+    const reply = await handleCommand(textEvent("delete"), {
+      users: deps.users,
+      drafts: deps.drafts,
+      businesses: deps.businesses,
+      config: deps.config,
+    });
     expect(reply).toBe(UNDONE_TEXT);
+  });
+});
+
+describe("autosave on/off (§5.8 opt-out)", () => {
+  it("turns auto-log off and persists it on the business", async () => {
+    const { businesses, deps } = makeDeps();
+    businesses.addBusiness({
+      id: "biz-1",
+      name: "My Business",
+      abn: null,
+      timezone: "Australia/Sydney",
+      gstRegistered: true,
+      autoSave: true,
+    });
+    const reply = await handleCommand(textEvent("autosave off"), {
+      users: deps.users,
+      drafts: deps.drafts,
+      businesses: deps.businesses,
+      config: deps.config,
+    });
+    expect(reply).toBe(AUTOSAVE_OFF_TEXT);
+    expect((await businesses.findBusiness("biz-1"))?.autoSave).toBe(false);
+  });
+
+  it("turns auto-log back on", async () => {
+    const { businesses, deps } = makeDeps();
+    businesses.addBusiness({
+      id: "biz-1",
+      name: "My Business",
+      abn: null,
+      timezone: "Australia/Sydney",
+      gstRegistered: true,
+      autoSave: false,
+    });
+    const reply = await handleCommand(textEvent("autosave on"), {
+      users: deps.users,
+      drafts: deps.drafts,
+      businesses: deps.businesses,
+      config: deps.config,
+    });
+    expect(reply).toBe(AUTOSAVE_ON_TEXT);
+    expect((await businesses.findBusiness("biz-1"))?.autoSave).toBe(true);
   });
 });

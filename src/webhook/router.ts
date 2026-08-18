@@ -60,6 +60,7 @@ export async function route(event: InboundEvent, deps: RouteDeps): Promise<void>
   }
 
   const reply = await handleCommand(event, {
+    users: deps.users,
     config: deps.config,
     drafts: deps.drafts,
     businesses: deps.businesses,

@@ -21,10 +21,16 @@ export const HELP_TEXT = `📚 BillSnap commands
 🔍 \`find <keyword>\` — search past bills
 ↩️ \`delete\` — undo the last transaction
 ⚙️ \`setup\` — business name, timezone, GST
+🔐 \`autosave on\` / \`autosave off\` — auto-log high-confidence AI reads, or always confirm first
 ▶️ \`NEXT\` — process next queued image
 ❓ \`help\` — this list`;
 
 export const UNKNOWN_COMMAND_TEXT = `❓ Didn't catch that. Reply \`help\` to see what I can do.`;
+
+export const AUTOSAVE_OFF_TEXT =
+  "🔒 Auto-log turned off. Every bill — including high-confidence AI reads — now waits for your Confirm & Save.";
+export const AUTOSAVE_ON_TEXT =
+  "⚡ Auto-log turned on. High-confidence AI reads log immediately with a 24-hour undo window (reply `delete` to undo).";
 
 export const EDIT_AMOUNT_PROMPT = "✏️ Edit amount — reply with the correct amount, e.g. `245.00` (or `4` to cancel).";
 export const EDIT_AMOUNT_RETRY = "That doesn't look like an amount — reply with digits only, e.g. `245.00`.";

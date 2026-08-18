@@ -197,6 +197,8 @@ export interface WebAppState {
   lastReply: string | null;
   /** The most recent photo's OCR read-back (raw lines + captured fields). */
   ocrRead: OcrRead | null;
+  /** §5.8 auto-log opt-out — off forces every bill onto the confirm screen. */
+  autoSave: boolean;
   draft: WebDraftState | null;
   recent: Array<{
     id: string;
@@ -222,6 +224,8 @@ export async function webAppState(
   const draft = await deps.drafts.findActiveDraft(id);
   const recent = await deps.drafts.listLogged(id, 20);
   const list = replies.get(id) ?? [];
+  const user = await deps.users.findUser(id);
+  const business = user?.businessId ? await deps.businesses.findBusiness(user.businessId) : null;
   return {
     deviceId: id,
     persistence: bindings?.db ? "d1" : "in-memory",
@@ -232,6 +236,7 @@ export async function webAppState(
         : "local OCR",
     lastReply: list.length > 0 ? list[list.length - 1]! : null,
     ocrRead: ocrReads.get(id) ?? null,
+    autoSave: business?.autoSave ?? true,
     draft: draft
       ? {
           id: draft.id,
@@ -296,6 +301,8 @@ const WEB_APP_PAGE = `<!doctype html>
   header h1 { font-size: 18px; margin: 0; }
   header a { color: #00a884; font-size: 13px; text-decoration: none; }
   header a:hover { text-decoration: underline; }
+  header .toggle { background: none; border: 1px solid #2a3942; color: #00a884; font-size: 12px; padding: 3px 8px; border-radius: 12px; cursor: pointer; font-family: inherit; }
+  header .toggle.off { color: #f15c6d; border-color: #f15c6d; }
   #badge { font-size: 11px; color: #8696a0; width: 100%; }
   main { flex: 1; overflow-y: auto; padding: 16px 16px calc(120px + env(safe-area-inset-bottom)); max-width: 560px; width: 100%; margin: 0 auto; }
   #hero { text-align: center; padding: 28px 0 12px; }
@@ -342,6 +349,7 @@ const WEB_APP_PAGE = `<!doctype html>
   <header>
     <h1>BillSnap</h1>
     <a href="/dev/dashboard?device=" class="dash-link">📊 Dashboard</a>
+    <button id="autosaveToggle" class="toggle" title="High-confidence AI reads auto-log with a 24h undo when on; every bill needs Confirm &amp; Save when off"></button>
     <span id="badge"></span>
   </header>
   <main>
@@ -395,13 +403,20 @@ const WEB_APP_PAGE = `<!doctype html>
   let lastFile = null;
   let lastName = "";
   let editing = false;
+  let autoSave = true;
 
   async function refresh() {
     const res = await fetch("/app/state?device=" + encodeURIComponent(device));
     if (res.ok) render(await res.json());
   }
 
+  $("autosaveToggle").onclick = () => act(autoSave ? "autosave off" : "autosave on");
+
   function render(s) {
+    autoSave = s.autoSave;
+    const toggle = $("autosaveToggle");
+    toggle.textContent = autoSave ? "🔐 Auto-save: ON" : "🔒 Auto-save: OFF";
+    toggle.className = "toggle" + (autoSave ? "" : " off");
     $("badge").textContent = "persistence: " + s.persistence + " · extractor: " + s.extractor +
       (s.recent.length ? " · " + s.recent.length + " logged" : "");
     const reply = $("reply");
