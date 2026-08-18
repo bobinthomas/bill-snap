@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-16T10:26:15.757Z",
+  "generatedAt": "2026-08-17T10:14:56.919Z",
   "note": "OCR-path measurement — no ground truth, so no pass/fail; per-field confidence and date-leak guard firings only.",
   "images": {
     "total": 1,

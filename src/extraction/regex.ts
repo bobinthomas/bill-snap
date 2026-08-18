@@ -37,7 +37,7 @@ function rejoinLineWraps(text: string): string {
   );
 }
 
-export function extractFromText(text: string): BillExtraction {
+export function extractFromText(text: string, knownVendors?: string[]): BillExtraction {
   text = rejoinLineWraps(text);
   const dateValue = findDate(text);
   // Date-fragment guard (§5.7) — strip ALL date/time shapes for the amount AND
@@ -50,12 +50,29 @@ export function extractFromText(text: string): BillExtraction {
   const abnValue = findAbn(text);
   const gstBasis = detectGstBasis(text);
   // Vendor extraction runs on the date-fragment-stripped text so dates never become the vendor.
-  const { category, vendor } = findCategoryAndVendor(dateStripped, amountValue, categoryOf(text));
+  const { category, vendor, vendorResolvedTo } = findCategoryAndVendor(
+    dateStripped,
+    amountValue,
+    categoryOf(text),
+    knownVendors,
+  );
 
   return {
     amount: { value: amountValue, confidence: amountValue === null ? 0 : 1 },
     date: { value: dateValue, confidence: dateValue === null ? 0 : 1 },
-    vendor: { value: vendor, confidence: vendor === null ? 0 : 1 },
+    // A vendor canonicalised via edit-distance matching is less certain than
+    // one read verbatim (exact known-name match or unknown) — confidence 0.9,
+    // still above the §5.4 vendorHigh threshold so presence-gating is unchanged.
+    vendor: {
+      value: vendor,
+      confidence: vendor === null ? 0 : vendorResolvedTo !== null ? 0.9 : 1,
+    },
+    // Log which known vendor a mangled reading resolved to — the dashboard
+    // surfaces it so a canonicalised name is never mistaken for a verbatim read.
+    vendor_resolved_to: {
+      value: vendorResolvedTo,
+      confidence: vendorResolvedTo === null ? 0 : 0.9,
+    },
     abn: { value: abnValue, confidence: abnValue === null ? 0 : 1 },
     gst: { value: null, confidence: 0 }, // recomputed by the validation layer
     gst_basis: gstBasis,
@@ -151,6 +168,14 @@ function findAmount(text: string): number | null {
     const n = parseAmount(currency);
     if (n !== null) return n;
   }
+  // Amounts written out in words (Indian GST invoices often print only the
+  // total in words when the numeric row OCRs badly: "FOUR THOUSAND FOUR
+  // HUNDRED AND NINETY RUPEES ONLY" = ₹4,490). Gated on a currency word on
+  // the line; the LARGEST wins, matching the total-line tie-break — the amount
+  // owed is the biggest number on a bill, and a stray line-item words-amount
+  // ("…AND NINETY PAISA ONLY") can't beat the grand total.
+  const wordsAmount = findWordsAmount(dateSafe);
+  if (wordsAmount !== null) return wordsAmount;
   for (const m of dateSafe.matchAll(AMOUNT_RE)) {
     const candidate = m[0];
     // Skip bare fragments glued to a date/time separator: "03" in "03/08 2026"
@@ -161,11 +186,257 @@ function findAmount(text: string): number | null {
       if ((before !== undefined && /[\/\-:]/.test(before)) || (after !== undefined && /[\/\-:]/.test(after))) {
         continue;
       }
+      // A bare digit inside a comparison ("Component < 1", "Qty > 2") is a
+      // quantity/fragment, never the amount owed.
+      if ((before !== undefined && /[<>]=?/.test(before)) || (after !== undefined && /[<>]=?/.test(after))) {
+        continue;
+      }
+      // A single bare digit is almost never an amount: "1" from "Component < 1"
+      // or a line-number "3" wins the document-order pass and becomes $1.00.
+      // (Decimal bare numbers like "9.99" still match via the decimal branch.)
+      if (!candidate.includes(".") && candidate.replace(/[,\d]/g, "").length === 0 && /^\d$/.test(candidate)) {
+        continue;
+      }
     }
     const n = parseAmount(candidate);
     if (n !== null) return n;
   }
   return null;
+}
+
+/**
+ * Known merchant names for vendor cleanup. OCR mangles a store name by one
+ * character per word ("GUJARAT FRlGHT TOOLS" — lowercase L for I, "Te1stra"),
+ * and a clean-looking mangled line would otherwise be kept verbatim as the
+ * vendor. When the picked vendor is within edit distance 1 per word of a known
+ * name (after OCR confusion normalisation), it is replaced by the canonical
+ * spelling so the same merchant always logs the same vendor.
+ *
+ * This is the STATIC SEED — the corpus/demo merchants. `mergeKnownVendors`
+ * grows it from the business's own logged bills at extraction time (the
+ * webapp/demo deps gather vendors from `drafts.listLogged` and pass them in),
+ * so the extraction layer itself stays stateless.
+ */
+export const KNOWN_VENDORS: string[] = [
+  "Telstra",
+  "Origin Energy",
+  "Bunnings",
+  "Caltex",
+  "Homebase",
+  "Rajesh",
+  "Reliance Hypermart Limited",
+  "HDFC Bank",
+  "Gujarat Freight Tools",
+];
+
+/** A logged vendor is worth learning when it looks like a merchant name: not
+ *  blank, short enough to be a name, and at least one real word with ≥ 3
+ *  LETTERS — rejects OCR garbage walls ("%%% ###"), single-letter fragments
+ *  ("x") and symbol-only tokens that would otherwise become canonicalisation
+ *  targets. */
+function isLearnableVendor(v: string): boolean {
+  const trimmed = v.trim();
+  const words = trimmed.split(/\s+/);
+  return (
+    trimmed.length >= 3 &&
+    trimmed.length <= 60 &&
+    words.length >= 1 &&
+    words.length <= 8 &&
+    words.some((w) => (w.match(/[A-Za-z]/g) ?? []).length >= 3)
+  );
+}
+
+/** Seed + vendors learned from the business's own logged bills, deduplicated by
+ *  case-folded spelling. Learned entries keep their original casing; the seed
+ *  keeps its canonical casing. Callers pass the result into `extractFromText`
+ *  as `knownVendors`. */
+export function mergeKnownVendors(learned: Array<string | null>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of [...KNOWN_VENDORS, ...learned]) {
+    if (v === null || !isLearnableVendor(v)) continue;
+    const key = normalizeVendorCase(v);
+    if (key === "" || seen.has(key)) continue;
+    seen.add(key);
+    out.push(v);
+  }
+  return out;
+}
+
+/** Uppercase, collapse whitespace/punctuation to single spaces — no OCR
+ *  folding, so an already-correct reading ("telstra" vs "Telstra") compares
+ *  equal and is never rewritten. */
+function normalizeVendorCase(s: string): string {
+  return s
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/** Uppercase, collapse whitespace/punctuation to single spaces, and fold the
+ *  classic tesseract confusions (L→I, 0→O, 1→I, 5→S, 8→B) so "FRlGHT" and
+ *  "FREIGHT" compare equal. Only used for the edit-distance pass — the
+ *  already-exact check above uses normalizeVendorCase so a mangled "Te1stra"
+ *  isn't mistaken for a clean "Telstra". */
+function normalizeVendorForMatch(s: string): string {
+  return normalizeVendorCase(s)
+    .replace(/L/g, "I")
+    .replace(/0/g, "O")
+    .replace(/1/g, "I")
+    .replace(/5/g, "S")
+    .replace(/8/g, "B");
+}
+
+/** Result of matching a candidate vendor against the known-vendor list. */
+interface VendorMatch {
+  /** The canonical spelling when the reading resolved to a known vendor, else the candidate itself. */
+  value: string;
+  /** The known vendor the reading was canonicalised TO — non-null exactly when
+   *  an edit-distance match rewrote the candidate (vs an exact read). */
+  resolvedTo: string | null;
+}
+
+/** Canonical spelling for a candidate vendor, or the candidate itself when no
+ *  known vendor matches. Matching: same word count, each word within edit
+ *  distance ≤ 1 of its counterpart (the levenshtein above), at least one word
+ *  actually differs. An already-correct reading (same words ignoring case) is
+ *  left untouched — "telstra" stays "telstra". A tie between two known vendors
+ *  is treated as ambiguous (return the candidate unchanged) rather than guessing. */
+function matchKnownVendor(candidate: string, knownVendors: string[] = KNOWN_VENDORS): VendorMatch {
+  const candCase = normalizeVendorCase(candidate);
+  if (candCase === "") return { value: candidate, resolvedTo: null };
+  const cand = normalizeVendorForMatch(candidate);
+  const candWords = cand.split(" ");
+  let best: string | null = null;
+  let bestScore = Infinity;
+  let ambiguous = false;
+  for (const known of knownVendors) {
+    if (candCase === normalizeVendorCase(known)) continue; // already this merchant
+    const knownWords = normalizeVendorForMatch(known).split(" ");
+    if (knownWords.length !== candWords.length) continue;
+    let score = 0;
+    let ok = true;
+    for (let i = 0; i < candWords.length; i++) {
+      if (candWords[i] === knownWords[i]) continue;
+      const d = levenshtein(candWords[i]!, knownWords[i]!);
+      if (d > 1) {
+        ok = false;
+        break;
+      }
+      score += d;
+    }
+    if (!ok) continue;
+    if (score < bestScore) {
+      bestScore = score;
+      best = known;
+      ambiguous = false;
+    } else if (score === bestScore) {
+      ambiguous = true;
+    }
+  }
+  if (ambiguous || best === null) return { value: candidate, resolvedTo: null };
+  return { value: best, resolvedTo: best };
+}
+
+/** English number words → value ("four thousand four hundred ninety" → 4490).
+ *  Supports the Indian scale (lakh/crore) plus US/AU (million/billion); AND
+ *  and ONLY are skippable fillers. Returns null on any unrecognised token so
+ *  prose lines never half-parse. */
+const NUMBER_WORDS: Record<string, number> = {
+  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+  ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+  seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50,
+  sixty: 60, seventy: 70, eighty: 80, ninety: 90, hundred: 100, thousand: 1000,
+  lakh: 100000, crore: 10000000, million: 1000000, billion: 1000000000,
+};
+
+/** Levenshtein distance — used to match OCR-mangled number words ("FOUS" for
+ *  FOUR, "HUNDREO" for HUNDRED) against the dictionary. */
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev: number[] = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur: number[] = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[n]!;
+}
+
+/** Dictionary value for a token, tolerating OCR mangling: an exact match wins;
+ *  otherwise any number word within edit distance 1 ("FOUS"→FOUR, "EIGHTY"
+ *  intact) is accepted. Tokens shorter than 3 letters never fuzzy-match so a
+ *  stray "to" can't become TWO. */
+function numberWordValue(tok: string): number | undefined {
+  const exact = NUMBER_WORDS[tok];
+  if (exact !== undefined) return exact;
+  if (tok.length < 3) return undefined;
+  let best: number | undefined;
+  let bestDist = Infinity;
+  for (const [word, value] of Object.entries(NUMBER_WORDS)) {
+    if (Math.abs(word.length - tok.length) > 1) continue;
+    const d = levenshtein(word, tok);
+    if (d < bestDist) {
+      bestDist = d;
+      best = value;
+    }
+  }
+  return bestDist <= 1 ? best : undefined;
+}
+
+function wordsToNumber(words: string): number | null {
+  const tokens = words.toLowerCase().split(/[\s-]+/).filter((w) => w !== "" && w !== "and" && w !== "only");
+  if (tokens.length === 0) return null;
+  let total = 0;
+  let current = 0;
+  for (const tok of tokens) {
+    const n = numberWordValue(tok);
+    if (n === undefined) return null;
+    if (n < 100) {
+      current += n;
+    } else if (n === 100) {
+      current *= 100;
+    } else {
+      // thousand/lakh/crore/million… — multiply the run so far, bank it.
+      current = (current || 1) * n;
+      total += current;
+      current = 0;
+    }
+  }
+  return total + current;
+}
+
+/** Largest words-written amount across the text ("…RUPEES ONLY", "…DOLLARS"),
+ *  with optional paisa/cent decimals ("AND NINETY PAISA" → .90). */
+function findWordsAmount(text: string): number | null {
+  let best: number | null = null;
+  for (const line of text.split(/\r?\n/)) {
+    // Currency word must survive OCR — the whole point is lines like
+    // "FOUR THOUSAND FOUR HUNDRED AND NINETY RUPEES ONLY".
+    const cur = line.match(/\b(RUPEES?|RUPEE|DOLLARS?|INR)\b/i);
+    if (!cur || cur.index === undefined) continue;
+    const before = line.slice(0, cur.index);
+    const whole = wordsToNumber(before);
+    if (whole === null) continue;
+    // Optional paisa/cent fraction: "…AND NINETY PAISA" (₹) / "…AND FIFTY
+    // CENTS" ($) after the currency word.
+    const after = line.slice(cur.index + cur[0].length);
+    const frac = after.match(/\b(?:AND\s+)?([A-Z]+)\s*(?:PAISA|CENTS?)\b/i);
+    let value = whole;
+    if (frac) {
+      const cents = wordsToNumber(frac[1]!);
+      if (cents !== null && cents < 100) value += cents / 100;
+    }
+    if (best === null || value > best) best = value;
+  }
+  return best;
 }
 
 /** Currency-prefixed amount candidates on one line ($/AUD/Rs/INR/₹) — the total-line pass.
@@ -274,6 +545,18 @@ function letterRatio(line: string): number {
   return compact.replace(/[^A-Za-z]/g, "").length / compact.length;
 }
 
+/** True when the line is a words-written amount ("FOUR THOUSAND FOUR HUNDRED
+ *  AND NINETY RUPEES ONLY") — the total printed in words on Indian GST
+ *  invoices. Such a line must never be picked as the vendor; the amount pass
+ *  already read it, and a clean OCR of it would otherwise win the vendor block
+ *  when the numeric row mangled (the words line is letter-dense and all
+ *  capitalised). */
+function isWordsAmountLine(line: string): boolean {
+  const cur = line.match(/\b(RUPEES?|RUPEE|DOLLARS?|INR)\b/i);
+  if (!cur || cur.index === undefined) return false;
+  return wordsToNumber(line.slice(0, cur.index)) !== null;
+}
+
 /** A line "looks like a store name" when it is letter-dense AND at least one
  *  surviving word is a real word (≥ 3 letters) — rejects symbol walls
  *  ("[5] Hore nan] %"), single-letter fragments ("wm N f") and blank lines. */
@@ -282,7 +565,8 @@ function isCleanVendorLine(rawLine: string, words: string[]): boolean {
     words.length > 0 &&
     letterRatio(rawLine) >= 0.7 &&
     words.some((w) => w.length >= 3) &&
-    words.join(" ").length <= 60
+    words.join(" ").length <= 60 &&
+    !isWordsAmountLine(rawLine)
   );
 }
 
@@ -290,8 +574,19 @@ function findCategoryAndVendor(
   text: string, // date-stripped
   amountValue: number | null,
   category: string | null,
-): { category: string | null; vendor: string | null } {
+  knownVendors?: string[],
+): { category: string | null; vendor: string | null; vendorResolvedTo: string | null } {
   let remainder = text;
+  // Words-written amount lines ("FOUR THOUSAND … RUPEES ONLY", possibly with
+  // OCR-mangled number words like "EIGHTY-FOUS") are never the vendor — blank
+  // them FIRST, before any stripping: the amount-token strip below removes the
+  // Rs|INR currency word, and a blanked-before-strip line can't be turned into
+  // a letter-dense "TWENTY FIVE THOUSAND ONLY" that would otherwise leak into
+  // the vendor block whenever the numeric row OCR'd badly.
+  remainder = remainder
+    .split(/\r?\n/)
+    .map((l) => (isWordsAmountLine(l) ? "" : l))
+    .join("\n");
   if (amountValue !== null) {
     // Remove the matched amount token(s) — try the exact formatted number first,
     // then a currency-prefixed variant.
@@ -314,6 +609,7 @@ function findCategoryAndVendor(
       if (leftover.length > 0) remainder = stripped;
     }
   }
+
   // Vendor = the FIRST run of clean-looking lines, not every surviving token:
   // joining everything across a noisy thermal receipt produced a garbage wall
   // ("Hore nan % ed } HET LN IE …"). Walk the lines top-to-bottom; once the
@@ -336,7 +632,19 @@ function findCategoryAndVendor(
     if (joined.length > 0 && joined.length + words.join(" ").length + 1 > 60) break;
     block.push(...words);
   }
-  const vendor =
+  const picked =
     block.length > 0 ? block.join(" ") : cleanWords(remainder).join(" ") || null;
-  return { category, vendor };
+  // Canonicalise a mangled merchant name against the known-vendor list (seed
+  // + learned from logged bills: "GUJARAT FRlGHT TOOLS" → "Gujarat Freight
+  // Tools") so the same store always logs the same vendor, and the §5.8
+  // duplicate gate sees one spelling. `vendorResolvedTo` records the known
+  // vendor the reading resolved to (non-null only for edit-distance matches).
+  let vendor: string | null = null;
+  let vendorResolvedTo: string | null = null;
+  if (picked !== null) {
+    const m = matchKnownVendor(picked, knownVendors);
+    vendor = m.value;
+    vendorResolvedTo = m.resolvedTo;
+  }
+  return { category, vendor, vendorResolvedTo };
 }

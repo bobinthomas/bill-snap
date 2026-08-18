@@ -1,0 +1,12 @@
+{
+  "id": "sample-o15",
+  "kind": "text",
+  "ocr_text": "GUJARAT FREIGHT TOOLS\nManufacturing & Supply of Precision Press Tool & Room Component < 1\nFOUR THOUSAND FOUR HUNDRED AND NINETY RUPEES ONLY",
+  "source": "OCR noise: Indian GST invoice whose numeric total row OCR'd to garbage — the total survives only in words (₹4,490); the words line must become the amount, never the vendor",
+  "should_log": true,
+  "expected": {
+    "amount": 4490.0,
+    "vendor": "GUJARAT FREIGHT TOOLS",
+    "gst_basis": "none"
+  }
+}

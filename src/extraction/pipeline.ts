@@ -48,6 +48,10 @@ export interface ExtractionInput {
   ocrText?: string;
   /** From `businesses.gst_registered` (M7). Defaults to true. */
   gstRegistered?: boolean;
+  /** Vendors known to the business (seed + learned from logged bills). Used to
+   *  canonicalise mangled merchant names (§5.3 vendor cleanup). The extraction
+   *  layer stays stateless — callers gather this from the store. */
+  knownVendors?: string[];
 }
 
 export interface ExtractionOutcome {
@@ -88,7 +92,7 @@ export function createExtractionService(config: AppConfig, ai?: WorkersAi): Extr
 
       if (input.ocrText && input.ocrText.trim() !== "") {
         // Regex is the PRIMARY parser (§5.3) — deterministic and dependency-free.
-        raw = extractFromText(input.ocrText);
+        raw = extractFromText(input.ocrText, input.knownVendors);
         source = "ocr";
         // Workers AI is the FALLBACK: only when regex cannot find the amount.
         // A throw (binding failure, garbage/unparseable JSON) keeps the regex
@@ -103,7 +107,7 @@ export function createExtractionService(config: AppConfig, ai?: WorkersAi): Extr
         }
       } else if (input.text && input.text.trim() !== "") {
         // Typed manual entries are parsed by regex only — AI is for OCR text.
-        raw = extractFromText(input.text);
+        raw = extractFromText(input.text, input.knownVendors);
         source = "regex";
       } else if (input.imageBytes && input.imageBytes.length > 0) {
         // Real WhatsApp photo path: no server-side OCR text, so the vision

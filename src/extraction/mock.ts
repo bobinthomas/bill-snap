@@ -52,6 +52,7 @@ export function createMockWorkersAiExtractor(): TextBillExtractor & ImageBillExt
     amount: field(bill.amount, 0.99),
     date: field(bill.date, 0.97),
     vendor: field(bill.vendor, 0.97),
+    vendor_resolved_to: { value: null, confidence: 0 }, // mock reads verbatim — only regex canonicalises
     abn: field<string>(bill.abn, bill.abn === null ? 0 : 0.95),
     gst: { value: null, confidence: 0 }, // recomputed by the validation layer
     gst_basis: bill.gstBasis,

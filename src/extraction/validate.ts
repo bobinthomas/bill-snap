@@ -134,6 +134,9 @@ export function normaliseExtraction(raw: BillExtraction, gstRegistered: boolean)
     amount: field(raw.amount, amount),
     date: field(raw.date, raw.date.value === null ? null : normaliseDate(raw.date.value)),
     vendor: field(raw.vendor, blankToNull(raw.vendor.value)),
+    ...(raw.vendor_resolved_to !== undefined
+      ? { vendor_resolved_to: field(raw.vendor_resolved_to, blankToNull(raw.vendor_resolved_to.value)) }
+      : {}),
     abn: field(
       raw.abn,
       raw.abn.value !== null && raw.abn.confidence >= 0.8 && validateAbn(raw.abn.value)

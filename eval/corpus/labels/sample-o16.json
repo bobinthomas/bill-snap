@@ -1,0 +1,11 @@
+{
+  "id": "sample-o16",
+  "kind": "text",
+  "ocr_text": "SIX HUNDRED AND EIGHTY-FOUR RUPEES AND NINETY PAISA ONLY",
+  "source": "OCR noise: words-written amount with a paisa fraction (₹684.90) and no numeric row at all",
+  "should_log": true,
+  "expected": {
+    "amount": 684.9,
+    "gst_basis": "none"
+  }
+}

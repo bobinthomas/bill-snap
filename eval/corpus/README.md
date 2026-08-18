@@ -89,6 +89,19 @@ real bills have. Maintained invariants:
   the shape is mangled to a space-month (`09 May 2009`) — `findDate` must
   capture it via the label line, the guard must keep `09` from winning the
   amount, and `normaliseDate` must convert it to ISO (`2009-05-09`).
+  `sample-o15`…`sample-o19` pin the words-amount fallback for Indian GST
+  invoices whose numeric total row OCR'd to garbage, leaving the total only in
+  words: a clean RUPEES total with a real vendor on the line above (the words
+  line must become the amount, never the vendor), a paisa fraction
+  (`AND NINETY PAISA`), OCR-mangled number words (`EIGHTY-FOUS` = FOUR — the
+  edit-distance-1 matcher must recover the value), a DOLLARS + CENTS fraction,
+  and the Indian scale with the `INR` currency word AFTER the number (which the
+  amount-token strip would otherwise turn into a letter-dense fake vendor).
+  `sample-o20` pins the known-vendor canonicalisation: the merchant header is
+  mangled one character per word (`GUJARAT FRlGHT TOOLS` — lowercase L for
+  uppercase I) — the edit-distance-1 matcher against `KNOWN_VENDORS` must
+  recover `Gujarat Freight Tools` so the same store always logs the same
+  vendor (and the §5.8 duplicate gate sees one spelling).
 
 ## OCR-path eval (`npm run eval:ocr`) — MEASUREMENT, not a gate
 

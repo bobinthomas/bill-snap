@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-08-16T12:07:41.840Z",
+  "generatedAt": "2026-08-17T11:43:25.041Z",
   "config": {},
   "corpus": {
-    "total": 48,
-    "scored": 23,
+    "total": 54,
+    "scored": 29,
     "skippedMissingImage": [
       "sample-01",
       "sample-02",

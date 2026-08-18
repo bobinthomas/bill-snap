@@ -176,6 +176,7 @@ function toBillExtraction(value: unknown): BillExtraction {
     amount: field<number>(obj.amount, level),
     date: field<string>(obj.date, level), // DD/MM/YYYY; ISO normalisation is the validate layer's job
     vendor: field<string>(obj.vendor, level),
+    vendor_resolved_to: { value: null, confidence: 0 }, // AI reads verbatim — only regex canonicalises
     abn: field<string>(obj.abn, level),
     gst: { value: null, confidence: 0 }, // recomputed by the validation layer
     gst_basis: basis === "inclusive" || basis === "exclusive" || basis === "none" ? basis : "none",

@@ -1,0 +1,11 @@
+{
+  "id": "sample-o18",
+  "kind": "text",
+  "ocr_text": "FIVE HUNDRED DOLLARS AND FIFTY CENTS ONLY",
+  "source": "OCR noise: words-written amount in dollars with a cents fraction ($500.50) — the paisa/cent matcher must handle CENTS",
+  "should_log": true,
+  "expected": {
+    "amount": 500.5,
+    "gst_basis": "none"
+  }
+}

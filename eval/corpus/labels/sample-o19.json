@@ -1,0 +1,11 @@
+{
+  "id": "sample-o19",
+  "kind": "text",
+  "ocr_text": "ONE LAKH TWENTY THOUSAND INR ONLY",
+  "source": "OCR noise: words-written amount on the Indian scale (₹1,20,000) with the INR currency word AFTER the number — the words parser must read it and the line must not leak into the vendor",
+  "should_log": true,
+  "expected": {
+    "amount": 120000.0,
+    "gst_basis": "none"
+  }
+}

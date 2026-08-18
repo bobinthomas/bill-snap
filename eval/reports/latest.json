@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-08-16T12:06:46.864Z",
+  "generatedAt": "2026-08-18T04:08:05.830Z",
   "config": {
     "mock": false
   },
   "corpus": {
-    "total": 48,
-    "scored": 23,
+    "total": 54,
+    "scored": 29,
     "skippedMissingImage": [
       "sample-01",
       "sample-02",
@@ -36,10 +36,10 @@
     "breakdown": {
       "inclusive": 17,
       "exclusive": 12,
-      "none": 18,
+      "none": 24,
       "portrait": 15,
       "landscape": 13,
-      "hard": 5
+      "hard": 7
     }
   },
   "thresholds": {
@@ -51,13 +51,13 @@
     "successRate": 1,
     "successTarget": 0.7,
     "hardCase": {
-      "n": 0,
-      "successRate": null
+      "n": 2,
+      "successRate": 1
     },
     "fieldAccuracy": {
       "amount": {
-        "n": 23,
-        "correct": 23,
+        "n": 29,
+        "correct": 29,
         "accuracy": 1
       },
       "date": {
@@ -66,14 +66,14 @@
         "accuracy": 1
       },
       "vendor": {
-        "n": 21,
-        "correct": 21,
+        "n": 24,
+        "correct": 24,
         "accuracy": 1
       }
     },
     "gating": {
       "high": 16,
-      "partial": 7,
+      "partial": 13,
       "low": 0
     },
     "gst": {

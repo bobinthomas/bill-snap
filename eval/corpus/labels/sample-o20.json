@@ -1,0 +1,13 @@
+{
+  "id": "sample-o20",
+  "kind": "text",
+  "ocr_text": "GUJARAT FRlGHT TOOLS\nManufacturing & Supply of Precision Press Tool & Room Component < 1\nFOUR THOUSAND FOUR HUNDRED AND NINETY RUPEES ONLY",
+  "source": "OCR noise: the merchant header is mangled one character per word (lowercase L for uppercase I in FRlGHT) — the known-vendor edit-distance matcher must canonicalise it to 'Gujarat Freight Tools' so the same store always logs the same vendor",
+  "hard": true,
+  "should_log": true,
+  "expected": {
+    "amount": 4490.0,
+    "vendor": "Gujarat Freight Tools",
+    "gst_basis": "none"
+  }
+}

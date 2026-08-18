@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config";
 import { classify } from "../src/extraction/gate";
 import { createExtractionService } from "../src/extraction/pipeline";
-import { extractFromText } from "../src/extraction/regex";
+import { extractFromText, mergeKnownVendors } from "../src/extraction/regex";
 import type { WorkersAi } from "../src/extraction/workers-ai";
 import {
   computeGst,
@@ -392,6 +392,130 @@ describe("extractFromText (regex fallback, §5.3)", () => {
   it("extracts an Rs-prefixed amount without any total line", () => {
     expect(extractFromText("Rs 321.68").amount.value).toBe(321.68);
     expect(extractFromText("INR 1,250.00").amount.value).toBe(1250);
+  });
+
+  it("does not read a single bare digit (Component < 1) as the amount", () => {
+    // Real GUJARAT FREIGHT TOOLS invoice: OCR mangled the numeric total row, so
+    // the first bare candidate in document order was "1" from "Component < 1"
+    // in the company header — $1.00. The comparison guard and single-digit
+    // guard must skip it; the words-amount fallback below finds the real total.
+    const out = extractFromText(
+      "Manufacturing & Supply of Precision Press Tool & Room Component < 1\n" +
+        "Tel 22223570507\nPAN : 76CURPEIFI9N TAX INVOICE\n" +
+        "FOUR THOUSAND FOUR HUNDRED AND NINETY RUPEES ONLY",
+    );
+    expect(out.amount.value).toBe(4490);
+  });
+
+  it("reads a total written out in words (Indian GST invoice)", () => {
+    // The numeric total row OCR'd to garbage, but the words line survived:
+    // "FOUR THOUSAND FOUR HUNDRED AND NINETY RUPEES ONLY" = ₹4,490.
+    const out = extractFromText(
+      "Tost a Ursvers al Tol 68 Has po Soi\n" +
+        "FOUR THOUSAND FOUR HUNDRED AND NINETY RUPEES ONLY\n" +
+        "SIX HUNDRED AND EIGHTY-FOUR RUPEES AND NINETY PAISA ONLY",
+    );
+    // Largest words-amount wins (the grand total, not a line item).
+    expect(out.amount.value).toBe(4490);
+  });
+
+  it("parses paisa/cent words into a decimal amount", () => {
+    expect(extractFromText("SIX HUNDRED AND EIGHTY-FOUR RUPEES AND NINETY PAISA ONLY").amount.value).toBe(684.9);
+    expect(extractFromText("FIVE HUNDRED DOLLARS AND FIFTY CENTS ONLY").amount.value).toBe(500.5);
+  });
+
+  it("tolerates OCR-mangled number words in a words total", () => {
+    // OCR read "FOUR" as "FOUS" — the edit-distance-1 match must recover it.
+    expect(extractFromText("SIX HUNDRED AND EIGHTY-FOUS RUPEES AND NINETY PAISA ONLY").amount.value).toBe(684.9);
+    // "HUNDRID" for HUNDRED, "THOUSANB" for THOUSAND (each edit distance 1).
+    expect(extractFromText("TWO THOUSANB RUPEES ONLY").amount.value).toBe(2000);
+    expect(extractFromText("FIVE HUNDRID RUPEES ONLY").amount.value).toBe(500);
+  });
+
+  it("parses lakh/crore words (Indian scale)", () => {
+    expect(extractFromText("ONE LAKH TWENTY THOUSAND RUPEES ONLY").amount.value).toBe(120000);
+  });
+
+  it("never picks a words-amount line as the vendor", () => {
+    // The words line is letter-dense ALL-CAPS — exactly what the vendor picker
+    // wants — but it is the amount, never the store name.
+    const out = extractFromText("GUJARAT FREIGHT TOOLS\nFOUR THOUSAND FOUR HUNDRED AND NINETY RUPEES ONLY");
+    expect(out.amount.value).toBe(4490);
+    expect(out.vendor.value).toBe("GUJARAT FREIGHT TOOLS");
+    const mangled = extractFromText("Vendor Line\nSIX HUNDRED AND EIGHTY-FOUS RUPEES AND NINETY PAISA ONLY");
+    expect(mangled.vendor.value).toBe("Vendor Line");
+  });
+
+  it("never leaks an INR words line into the vendor", () => {
+    // The amount-token strip removes the "INR" currency word; the blanked
+    // line must not resurface as "TWENTY FIVE THOUSAND ONLY".
+    const out = extractFromText("TWENTY FIVE THOUSAND INR ONLY");
+    expect(out.amount.value).toBe(25000);
+    expect(out.vendor.value).toBeNull();
+  });
+
+  it("canonicalises a mangled known vendor (edit distance 1 per word)", () => {
+    // OCR read the merchant header as "GUJARAT FRlGHT TOOLS" (lowercase L for
+    // uppercase I) — the known-vendor matcher must recover the canonical name.
+    const out = extractFromText("GUJARAT FRlGHT TOOLS\nFOUR THOUSAND FOUR HUNDRED AND NINETY RUPEES ONLY");
+    expect(out.amount.value).toBe(4490);
+    expect(out.vendor.value).toBe("Gujarat Freight Tools");
+    // Single-word confusions too ("Te1stra" — digit 1 for I).
+    expect(extractFromText("Te1stra\nAmount: $99.95").vendor.value).toBe("Telstra");
+  });
+
+  it("leaves an unknown or exact vendor untouched", () => {
+    // Not in KNOWN_VENDORS — never rewritten.
+    expect(extractFromText("wagh nd Faiate Web\nAmount: $10.00").vendor.value).toBe("wagh nd Faiate Web");
+    // Exact known spelling stays canonical (already exact).
+    expect(extractFromText("Reliance Hypermart Limited\nTotal Rs 321.68").vendor.value).toBe(
+      "Reliance Hypermart Limited",
+    );
+  });
+
+  it("canonicalises against learned vendors from logged bills", () => {
+    // A merchant NOT in the seed list, learned from a previously logged bill:
+    // the mangled re-read must canonicalise to the logged spelling.
+    const learned = ["wagh and sons plumbing"];
+    const out = extractFromText("WAGH AND SONS PLUMBINQ\nTotal $600.00", learned);
+    expect(out.amount.value).toBe(600);
+    expect(out.vendor.value).toBe("wagh and sons plumbing");
+    // Without the learned list the same text stays as OCR'd (no known vendor).
+    expect(extractFromText("WAGH AND SONS PLUMBINQ\nTotal $600.00").vendor.value).toBe("WAGH AND SONS PLUMBINQ");
+  });
+
+  it("drops vendor confidence for edit-distance canonicalisation and logs the resolution", () => {
+    // Fuzzy canonicalisation: confidence 0.9 (< verbatim 1.0) and the known
+    // vendor is logged in vendor_resolved_to.
+    const fuzzy = extractFromText("GUJARAT FRlGHT TOOLS\nFOUR THOUSAND FOUR HUNDRED AND NINETY RUPEES ONLY");
+    expect(fuzzy.vendor.value).toBe("Gujarat Freight Tools");
+    expect(fuzzy.vendor.confidence).toBe(0.9);
+    expect(fuzzy.vendor_resolved_to?.value).toBe("Gujarat Freight Tools");
+    // Verbatim reads (unknown or exact known) keep confidence 1 and no resolution.
+    const verbatim = extractFromText("Some Unknown Shop\nTotal $10.00");
+    expect(verbatim.vendor.confidence).toBe(1);
+    expect(verbatim.vendor_resolved_to?.value).toBeNull();
+    const exact = extractFromText("Reliance Hypermart Limited\nTotal Rs 321.68");
+    expect(exact.vendor.confidence).toBe(1);
+    expect(exact.vendor_resolved_to?.value).toBeNull();
+    // An edit clears the resolution log.
+    expect(extractFromText("Some Unknown Shop\nTotal $10.00").vendor_resolved_to).toBeDefined();
+  });
+
+  it("mergeKnownVendors keeps the seed first and dedupes learned vendors", () => {
+    const merged = mergeKnownVendors(["telstra", "wagh and sons plumbing", "", null, "TELSTRA", "%%% ###", "x"]);
+    expect(merged[0]).toBe("Telstra"); // seed canonical casing wins
+    expect(merged).toContain("wagh and sons plumbing");
+    // Deduped by case-folded spelling — "telstra"/"TELSTRA" collapse into the seed entry.
+    const telstraCount = merged.filter((v) => v.toLowerCase() === "telstra").length;
+    expect(telstraCount).toBe(1);
+    // Junk that isn't a name (symbol wall, single letter) is never learned.
+    expect(merged.some((v) => v.includes("%") || v === "x")).toBe(false);
+  });
+
+  it("ignores prose lines with number words but no currency", () => {
+    // "THOUSAND AND NINETY" with no RUPEES/DOLLARS word is not an amount.
+    expect(extractFromText("FOUR THOUSAND AND NINETY ITEMS").amount.value).toBeNull();
   });
 
   it("keeps Subtotal lines from matching the fuzzy total", () => {

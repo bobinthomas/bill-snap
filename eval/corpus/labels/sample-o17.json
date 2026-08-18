@@ -1,0 +1,13 @@
+{
+  "id": "sample-o17",
+  "kind": "text",
+  "ocr_text": "HDFC BANK\nMADURAI IN\nSIX HUNDRED AND EIGHTY-FOUS RUPEES AND NINETY PAISA ONLY",
+  "source": "OCR noise: words-written amount whose number words are OCR-mangled (FOUS = FOUR) — the edit-distance-1 matcher must recover ₹684.90, and the words line must not become the vendor",
+  "hard": true,
+  "should_log": true,
+  "expected": {
+    "amount": 684.9,
+    "vendor": "HDFC Bank",
+    "gst_basis": "none"
+  }
+}
