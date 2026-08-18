@@ -54,7 +54,7 @@ const MAX_TOKENS = 256;
 const TEMPERATURE = 0.1;
 
 const SYSTEM_PROMPT = `You are a bookkeeping parser. Read the raw OCR text of an Australian bill, invoice, or receipt and return ONLY a JSON object with exactly these fields:
-- "amount": the total the customer owes, as a number in AUD (null if not found)
+- "amount": the GRAND TOTAL the customer owes. Look for a line labelled "Grand Total", "Total", "Amount Due", "Balance", or "Amount Payable" — never a line item, "Subtotal", or "Qty". If several such labelled lines appear (e.g. a Subtotal followed by a Total, or a GST line followed by the real total), the LARGEST value among them is the one to use. Return it as a plain number, ignoring any currency symbol ($, ₹, Rs, AUD, etc.) (null if not found)
 - "vendor": the business or store name (null if not found)
 - "date": the bill date as DD/MM/YYYY (null if not found)
 - "abn": the Australian Business Number, with or without spaces (null if not found)
@@ -96,7 +96,7 @@ export function createWorkersAiExtractor(ai: WorkersAi, model = DEFAULT_AI_MODEL
 }
 
 const VISION_SYSTEM_PROMPT = `You are a bookkeeping parser. Look at this photo of a bill, invoice, or receipt and return ONLY a JSON object with exactly these fields:
-- "amount": the total the customer owes, as a number in AUD (null if not visible)
+- "amount": the GRAND TOTAL the customer owes. Look for a line labelled "Grand Total", "Total", "Amount Due", "Balance", or "Amount Payable" — never a line item's price, "Sub Total", or a "Qty" column. If several such labelled lines are visible (e.g. a Sub Total followed by a Grand Total), the LARGEST value among them is the one to use. Return it as a plain number, ignoring any currency symbol ($, ₹, Rs, AUD, etc.) (null if not visible)
 - "vendor": the business or store name printed on the receipt (null if not visible)
 - "date": the bill date as DD/MM/YYYY (null if not visible)
 - "abn": the Australian Business Number, with or without spaces (null if not visible)
