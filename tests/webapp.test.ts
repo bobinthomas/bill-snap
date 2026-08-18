@@ -34,7 +34,10 @@ describe("mobile-first webapp (/app)", () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain("Take photo");
-    expect(html).toContain("Sample bill");
+    // Dev/test-only affordances (sample bill, persistence/extractor badge)
+    // live in a collapsed debug panel now — off the primary user flow.
+    expect(html).toContain("sample bill");
+    expect(html).toContain('id="debug"');
     expect(html).toContain("billsnap.device");
   });
 
@@ -124,13 +127,14 @@ describe("mobile-first webapp (/app)", () => {
     expect(state.recent.length).toBe(1);
 
     // The dashboard scoped to that device sees it; the demo user does not.
-    const devEnv = { DEV_DEMO: "true" };
-    const dashRes = await app.request("/dev/dashboard/data?device=web_dash", {}, devEnv);
+    const devEnv = { DEV_DEMO: "true", DASHBOARD_PASSWORD: "test-password" };
+    const authHeader = { headers: { Authorization: "Basic " + btoa("billsnap:test-password") } };
+    const dashRes = await app.request("/dev/dashboard/data?device=web_dash", authHeader, devEnv);
     const dash = (await dashRes.json()) as { totals: { count: number; amount: number } };
     expect(dash.totals.count).toBe(1);
     expect(dash.totals.amount).toBe(100);
 
-    const otherRes = await app.request("/dev/dashboard/data", {}, devEnv);
+    const otherRes = await app.request("/dev/dashboard/data", authHeader, devEnv);
     const other = (await otherRes.json()) as { totals: { count: number } };
     expect(other.totals.count).toBe(0);
   });
@@ -177,8 +181,9 @@ describe("mobile-first webapp (/app)", () => {
 
     // The dashboard scoped to that device shows the canonical name AND the
     // resolved-to log (which known vendor it was canonicalised to).
-    const devEnv = { DEV_DEMO: "true" };
-    const dashRes = await app.request("/dev/dashboard/data?device=" + device, {}, devEnv);
+    const devEnv = { DEV_DEMO: "true", DASHBOARD_PASSWORD: "test-password" };
+    const authHeader = { headers: { Authorization: "Basic " + btoa("billsnap:test-password") } };
+    const dashRes = await app.request("/dev/dashboard/data?device=" + device, authHeader, devEnv);
     const dash = (await dashRes.json()) as {
       totals: { count: number };
       recent: Array<{ vendor: string | null; vendorResolvedTo: string | null }>;

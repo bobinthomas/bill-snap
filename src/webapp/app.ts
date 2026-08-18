@@ -303,7 +303,6 @@ const WEB_APP_PAGE = `<!doctype html>
   header a:hover { text-decoration: underline; }
   header .toggle { background: none; border: 1px solid #2a3942; color: #00a884; font-size: 12px; padding: 3px 8px; border-radius: 12px; cursor: pointer; font-family: inherit; }
   header .toggle.off { color: #f15c6d; border-color: #f15c6d; }
-  #badge { font-size: 11px; color: #8696a0; width: 100%; }
   main { flex: 1; overflow-y: auto; padding: 16px 16px calc(120px + env(safe-area-inset-bottom)); max-width: 560px; width: 100%; margin: 0 auto; }
   #hero { text-align: center; padding: 28px 0 12px; }
   #hero .big { font-size: 17px; color: #e9edef; margin-bottom: 6px; }
@@ -342,6 +341,14 @@ const WEB_APP_PAGE = `<!doctype html>
   #actions { position: fixed; bottom: 0; left: 0; right: 0; background: #0b141a; border-top: 1px solid #2a3942; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); display: none; max-width: 560px; margin: 0 auto; }
   #actions .btn { margin: 4px 0; }
   code { color: #ffa657; }
+  #debug { margin: 28px 0 0; }
+  #debug summary { cursor: pointer; font-size: 12px; color: #8696a0; padding: 8px 0; list-style: none; }
+  #debug summary::-webkit-details-marker { display: none; }
+  #debug summary::before { content: "▸ "; }
+  #debug[open] summary::before { content: "▾ "; }
+  #debug[open] summary { color: #00a884; }
+  #debug .btn { margin: 10px 0; }
+  #badge { font-size: 11px; color: #8696a0; margin: 6px 0 2px; }
 </style>
 </head>
 <body>
@@ -350,7 +357,6 @@ const WEB_APP_PAGE = `<!doctype html>
     <h1>BillSnap</h1>
     <a href="/dev/dashboard?device=" class="dash-link">📊 Dashboard</a>
     <button id="autosaveToggle" class="toggle" title="High-confidence AI reads auto-log with a 24h undo when on; every bill needs Confirm &amp; Save when off"></button>
-    <span id="badge"></span>
   </header>
   <main>
     <div id="hero">
@@ -358,12 +364,10 @@ const WEB_APP_PAGE = `<!doctype html>
       <div class="sub">Take a photo of any bill or invoice — I'll read the amount, date, vendor, and GST, and you confirm.</div>
       <button class="btn primary" id="camera">📷 Take photo</button>
       <button class="btn ghost" id="gallery">🖼 Choose from gallery</button>
-      <button class="btn ghost" id="sample">🧾 Sample bill</button>
     </div>
     <input type="file" id="file" accept="image/*" hidden />
     <img id="preview" alt="bill preview" />
     <div id="status">🔍 Reading…</div>
-    <div id="readback"></div>
     <div id="reply"></div>
     <div id="draft"></div>
     <div id="editbox">
@@ -373,6 +377,12 @@ const WEB_APP_PAGE = `<!doctype html>
     </div>
     <h3>Recent bills</h3>
     <ul id="recent"></ul>
+    <details id="debug">
+      <summary>Debug info</summary>
+      <div id="badge"></div>
+      <button class="btn ghost" id="sample">🧾 Try a sample bill</button>
+      <div id="readback"></div>
+    </details>
   </main>
   <div id="actions"></div>
 <script>
