@@ -63,7 +63,12 @@ export async function applyEdit(
       await deps.send.sendText(draft.userPhone, EDIT_VENDOR_RETRY);
       return;
     }
-    const extraction: BillExtraction = { ...base, vendor: { value: text, confidence: 1 } };
+    // A user-typed vendor is verified verbatim — clear any canonicalisation log.
+    const extraction: BillExtraction = {
+      ...base,
+      vendor: { value: text, confidence: 1 },
+      vendor_resolved_to: { value: null, confidence: 0 },
+    };
     await finishEdit(draft, extraction, `✅ Vendor updated — ${text}`, deps);
     return;
   }
@@ -103,6 +108,7 @@ function emptyExtraction(): BillExtraction {
     amount: { value: null, confidence: 0 },
     date: { value: null, confidence: 0 },
     vendor: { value: null, confidence: 0 },
+    vendor_resolved_to: { value: null, confidence: 0 },
     abn: { value: null, confidence: 0 },
     gst: { value: null, confidence: 0 },
     gst_basis: "none",

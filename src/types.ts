@@ -16,6 +16,10 @@ export interface BillExtraction {
   amount: ExtractedField<number>;
   date: ExtractedField<string>; // ISO YYYY-MM-DD
   vendor: ExtractedField<string>;
+  /** The known vendor a mangled reading was canonicalised to (edit-distance
+   *  match against KNOWN_VENDORS / learned vendors). Absent when the vendor was
+   *  read verbatim (exact known match or unknown) — only regex sets it. */
+  vendor_resolved_to?: ExtractedField<string>;
   abn: ExtractedField<string>;
   gst: ExtractedField<number>;
   gst_basis: "inclusive" | "exclusive" | "none";

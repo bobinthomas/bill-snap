@@ -1,7 +1,8 @@
 /**
  * In-memory store stack for the /dev/demo browser console (DEV-only, never in
- * production). Used when Supabase is not configured so the demo works with zero
- * setup; multi-turn state survives because the singleton lives in module scope.
+ * production). Used when no D1/R2 bindings are present so the demo works with
+ * zero setup; multi-turn state survives because the singleton lives in module
+ * scope.
  *
  * Mirrors the real stores' behaviour closely enough for the flows to be driven
  * end to end — idempotency key, draft TTL, status transitions, undo windows.
@@ -29,6 +30,23 @@ export interface MemoryStack {
   businesses: BusinessStore;
   drafts: DraftStore;
   storage: BillStorage;
+}
+
+/**
+ * Shared dev-store singleton: the webapp (/app), the demo console (/dev/demo),
+ * and the dashboard (/dev/dashboard) all read the SAME in-memory store, so
+ * bills logged in one surface appear in the others without any infra. Reset
+ * with `resetSharedMemoryStack` between tests.
+ */
+let shared: MemoryStack | null = null;
+
+export function getSharedMemoryStack(): MemoryStack {
+  shared ??= createMemoryStack();
+  return shared;
+}
+
+export function resetSharedMemoryStack(): void {
+  shared = null;
 }
 
 export function createMemoryStack(): MemoryStack {
