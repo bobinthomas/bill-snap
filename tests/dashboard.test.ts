@@ -4,7 +4,9 @@ import { billsToCsv, exportFileName, type LoggedBill } from "../src/dev/dashboar
 import { demoDeps, DEMO_PHONE, resetDemo } from "../src/dev/demo";
 import { createApp } from "../src/index";
 
-const ENV = { DEV_DEMO: "true" };
+const DASHBOARD_PASSWORD = "test-password";
+const ENV = { DEV_DEMO: "true", DASHBOARD_PASSWORD };
+const AUTH_HEADER = { Authorization: "Basic " + btoa(`billsnap:${DASHBOARD_PASSWORD}`) };
 
 interface DashboardJson {
   persistence: "d1" | "in-memory";
@@ -27,7 +29,7 @@ interface DashboardJson {
 }
 
 async function data(app: ReturnType<typeof createApp>, query = "") {
-  const res = await app.request("/dev/dashboard/data" + query, {}, ENV);
+  const res = await app.request("/dev/dashboard/data" + query, { headers: AUTH_HEADER }, ENV);
   expect(res.status).toBe(200);
   return (await res.json()) as DashboardJson;
 }
@@ -53,7 +55,7 @@ async function logBill(text: string, confirmedAt: Date): Promise<void> {
 }
 
 async function get(app: ReturnType<typeof createApp>, path: string) {
-  return app.request(path, {}, ENV);
+  return app.request(path, { headers: AUTH_HEADER }, ENV);
 }
 
 describe("dev analytics dashboard (/dev/dashboard)", () => {
@@ -63,6 +65,28 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
     const app = createApp();
     const res = await app.request("/dev/dashboard", {}, {});
     expect(res.status).toBe(404);
+  });
+
+  it("fails closed (500) when DEV_DEMO is on but no DASHBOARD_PASSWORD is configured", async () => {
+    const app = createApp();
+    const res = await app.request("/dev/dashboard", {}, { DEV_DEMO: "true" });
+    expect(res.status).toBe(500);
+  });
+
+  it("rejects requests with no credentials", async () => {
+    const app = createApp();
+    const res = await app.request("/dev/dashboard", {}, ENV);
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects the wrong password", async () => {
+    const app = createApp();
+    const res = await app.request(
+      "/dev/dashboard",
+      { headers: { Authorization: "Basic " + btoa("billsnap:wrong-password") } },
+      ENV,
+    );
+    expect(res.status).toBe(401);
   });
 
   it("serves the dashboard page when enabled", async () => {
@@ -89,7 +113,7 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
 
   it("seed logs six realistic bills through the pipeline with clean analytics", async () => {
     const app = createApp();
-    const seed = await app.request("/dev/dashboard/seed", { method: "POST" }, ENV);
+    const seed = await app.request("/dev/dashboard/seed", { method: "POST", headers: AUTH_HEADER }, ENV);
     expect(seed.status).toBe(200);
     const data = (await seed.json()) as DashboardJson;
 
@@ -131,7 +155,7 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
 
   it("lists the months present and echoes the active filters", async () => {
     const app = createApp();
-    await app.request("/dev/dashboard/seed", { method: "POST" }, ENV);
+    await app.request("/dev/dashboard/seed", { method: "POST", headers: AUTH_HEADER }, ENV);
     const d = await data(app);
 
     const currentMonth = new Date().toISOString().slice(0, 7);
@@ -142,7 +166,7 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
 
   it("filters by month, category, and vendor (cascading)", async () => {
     const app = createApp();
-    await app.request("/dev/dashboard/seed", { method: "POST" }, ENV);
+    await app.request("/dev/dashboard/seed", { method: "POST", headers: AUTH_HEADER }, ENV);
     await logBill("wages 500 july-book", new Date("2026-07-15T00:00:00.000Z"));
 
     const all = await data(app);
@@ -179,14 +203,14 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
 
   it("exports the filtered bill list as CSV for the accountant share", async () => {
     const app = createApp();
-    await app.request("/dev/dashboard/seed", { method: "POST" }, ENV);
+    await app.request("/dev/dashboard/seed", { method: "POST", headers: AUTH_HEADER }, ENV);
     await logBill("wages 500 july-book", new Date("2026-07-15T00:00:00.000Z"));
 
     // Gated like the rest of the dev dashboard.
     const gated = await app.request("/dev/dashboard/export.csv", {}, {});
     expect(gated.status).toBe(404);
 
-    const res = await app.request("/dev/dashboard/export.csv?month=2026-07", {}, ENV);
+    const res = await app.request("/dev/dashboard/export.csv?month=2026-07", { headers: AUTH_HEADER }, ENV);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/csv");
     expect(res.headers.get("content-disposition")).toContain('filename="bills-2026-07.csv"');
@@ -203,7 +227,7 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
     expect(lines[1]).toContain("500.00");
 
     // Unfiltered export carries every row (trailing CRLF trimmed first).
-    const all = await app.request("/dev/dashboard/export.csv", {}, ENV);
+    const all = await app.request("/dev/dashboard/export.csv", { headers: AUTH_HEADER }, ENV);
     expect((await all.text()).trimEnd().split("\r\n").length).toBe(8); // header + 7 bills
   });
 

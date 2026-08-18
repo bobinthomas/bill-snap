@@ -16,6 +16,7 @@
 import type { D1Database, ExecutionContext, R2Bucket, ScheduledController } from "@cloudflare/workers-types";
 import type { CloudBindings } from "./bindings";
 import { Hono } from "hono";
+import { basicAuth } from "hono/basic-auth";
 import { loadConfig } from "./config";
 import { billsToCsv, dashboardData, exportFileName, renderDashboardPage, seedDemoBills } from "./dev/dashboard";
 import { DEMO_MEDIA_ID, demoDeps, demoState, renderDemoPage, setDemoMedia, simulatePhoto, simulateText } from "./dev/demo";
@@ -121,13 +122,28 @@ export function createApp(deps: AppDeps = {}) {
     return c.json(await demoState(config, aiBinding(c.env), cloudBindings(c.env)));
   });
 
-  // DEV-only analytics dashboard over the demo user's logged bills.
-  app.get("/dev/dashboard", (c) => {
+  // DEV-only analytics dashboard over the demo user's logged bills. Gated
+  // behind DEV_DEMO (as before) AND HTTP Basic Auth (DASHBOARD_PASSWORD) —
+  // this data (spend, GST, vendors) is real business data once deployed, not
+  // just a dev toy, so it needs a real credential, not only an env flag.
+  // Fails CLOSED: no password configured means no access, never open access.
+  const DASHBOARD_USER = "billsnap";
+  app.use("/dev/dashboard", async (c, next) => {
     if (!devDemo(c.env)) return c.text("Not found", 404);
+    const password = loadConfig(c.env).dashboardPassword;
+    if (!password) return c.text("DASHBOARD_PASSWORD not configured — see .env.example", 500);
+    return basicAuth({ username: DASHBOARD_USER, password })(c, next);
+  });
+  app.use("/dev/dashboard/*", async (c, next) => {
+    if (!devDemo(c.env)) return c.text("Not found", 404);
+    const password = loadConfig(c.env).dashboardPassword;
+    if (!password) return c.text("DASHBOARD_PASSWORD not configured — see .env.example", 500);
+    return basicAuth({ username: DASHBOARD_USER, password })(c, next);
+  });
+  app.get("/dev/dashboard", (c) => {
     return c.html(renderDashboardPage());
   });
   app.get("/dev/dashboard/data", async (c) => {
-    if (!devDemo(c.env)) return c.text("Not found", 404);
     const q = c.req.query();
     return c.json(
       await dashboardData(
@@ -143,13 +159,11 @@ export function createApp(deps: AppDeps = {}) {
     );
   });
   app.post("/dev/dashboard/seed", async (c) => {
-    if (!devDemo(c.env)) return c.text("Not found", 404);
     const config = loadConfig(c.env);
     await seedDemoBills(config, cloudBindings(c.env));
     return c.json(await dashboardData(config, {}, cloudBindings(c.env)));
   });
   app.get("/dev/dashboard/export.csv", async (c) => {
-    if (!devDemo(c.env)) return c.text("Not found", 404);
     const q = c.req.query();
     const filters = {
       month: q.month || undefined,

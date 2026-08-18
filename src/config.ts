@@ -20,6 +20,8 @@ export interface AppConfig {
   geminiMock: boolean;
   /** Local-only: enables the /dev/* demo console (never set in production). */
   devDemo: boolean;
+  /** HTTP Basic Auth password for /dev/dashboard (env DASHBOARD_PASSWORD). Unset → the dashboard refuses to serve, fail-closed. */
+  dashboardPassword?: string;
   extraction: {
     /** §5.4 per-field thresholds. */
     amountHigh: number;
@@ -53,6 +55,7 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     aiVisionModel: env.AI_VISION_MODEL,
     geminiMock: env.GEMINI_MOCK === "true",
     devDemo: env.DEV_DEMO === "true",
+    dashboardPassword: env.DASHBOARD_PASSWORD,
     extraction: {
       amountHigh: num(env.EXTRACTION_AMOUNT_HIGH, 0.9),
       amountLow: num(env.EXTRACTION_AMOUNT_LOW, 0.7),

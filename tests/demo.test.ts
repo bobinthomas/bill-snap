@@ -87,7 +87,7 @@ describe("dev demo console (/dev/demo)", () => {
 
   it("auto-logs a mock Workers AI read (High, trusted parser) with the 24 h undo window", async () => {
     const app = createApp();
-    const env = { DEV_DEMO: "true", GEMINI_MOCK: "true" };
+    const env = { DEV_DEMO: "true", GEMINI_MOCK: "true", DASHBOARD_PASSWORD: "test-password" };
     const form = new FormData();
     form.append("file", new File([new TextEncoder().encode("img")], "mock-bill.jpg", { type: "image/jpeg" }));
     // OCR text with NO amount → regex cannot extract → the mock AI fallback runs.
@@ -111,7 +111,7 @@ describe("dev demo console (/dev/demo)", () => {
     // The dashboard KPI counts the auto-logged bill.
     const dash = await app.request(
       "/dev/dashboard/data",
-      {},
+      { headers: { Authorization: "Basic " + btoa("billsnap:test-password") } },
       env,
     );
     const d = (await dash.json()) as { totals: { count: number; autoLogged: number } };
