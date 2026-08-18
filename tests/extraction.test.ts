@@ -779,11 +779,12 @@ describe("extraction pipeline — Workers AI fallback (env.AI)", () => {
 
   it("reads photo bytes with the vision model when no OCR text exists", async () => {
     // The real WhatsApp webhook path passes image bytes only (no server-side
-    // OCR) — the LLaVA vision model reads the bytes directly, so the photo no
+    // OCR) — the vision model reads the bytes directly, so the photo no
     // longer falls through to the manual-entry prompt.
-    let seen: { model: string; image: number[]; prompt: string } | undefined;
+    let seen: { model: string; content: Array<Record<string, unknown>> } | undefined;
     const ai = fakeAi({ response: GOOD_JSON }, (model, inputs) => {
-      seen = { model, image: inputs.image as number[], prompt: inputs.prompt as string };
+      const messages = inputs.messages as Array<{ content: Array<Record<string, unknown>> }>;
+      seen = { model, content: messages[0]!.content };
     });
     const service = createExtractionService(CONFIG, ai);
     const outcome = await service.run({
@@ -794,15 +795,23 @@ describe("extraction pipeline — Workers AI fallback (env.AI)", () => {
     expect(outcome.machineRead).toBe(false); // trusted parser — auto-log eligible (§5.8)
     expect(outcome.extraction.amount.value).toBe(321.68);
     expect(outcome.gate).toBe("high");
-    // LLaVA input format: array of byte numbers (byte-exact on the wire).
-    expect(seen?.model).toBe("@cf/llava-hf/llava-1.5-7b-hf");
-    expect(seen?.image).toEqual([0xff, 0xd8, 0xff, 0xe0]);
-    expect(seen?.prompt).toContain("photo of a bill");
+    // Chat-message input: a base64 data URI inside an image_url content block.
+    expect(seen?.model).toBe("@cf/meta/llama-4-scout-17b-16e-instruct");
+    const textBlock = seen?.content.find((c) => c.type === "text");
+    const imageBlock = seen?.content.find((c) => c.type === "image_url") as
+      | { image_url: { url: string } }
+      | undefined;
+    expect(textBlock?.text).toContain("photo of a bill");
+    expect(imageBlock?.image_url.url).toBe(
+      `data:image/jpeg;base64,${Buffer.from([0xff, 0xd8, 0xff, 0xe0]).toString("base64")}`,
+    );
   });
 
-  it("parses a LLaVA `description` response with Markdown-escaped underscores", async () => {
-    // Live finding: LLaVA wraps the JSON in a `description` string and escapes
-    // key underscores as `\_` (invalid JSON) — both handled before parsing.
+  it("parses a `description`-wrapped response with Markdown-escaped underscores", async () => {
+    // Live finding (against the earlier LLaVA vision model, kept as a
+    // regression case): a vision model wrapping the JSON in a `description`
+    // string and escaping key underscores as `\_` (invalid JSON) — both
+    // handled before parsing, regardless of which model returns this shape.
     const ai = fakeAi({
       description: JSON.stringify({
         amount: 327.66,
@@ -868,7 +877,7 @@ describe("extraction pipeline — Workers AI fallback (env.AI)", () => {
   it("escalates to the vision model when OCR text is garbage, overriding the regex guess", async () => {
     let visionCalled = false;
     const ai = fakeAi({ response: VISION_JSON }, (model) => {
-      if (model === "@cf/llava-hf/llava-1.5-7b-hf") visionCalled = true;
+      if (model === "@cf/meta/llama-4-scout-17b-16e-instruct") visionCalled = true;
     });
     const service = createExtractionService(CONFIG, ai);
     // Sanity check: regex alone really does pick the wrong reference number.

@@ -37,12 +37,19 @@ export interface ImageBillExtractor {
 // after the 2026-05-30 catalog refresh (llama-3.1-8b-instruct was deprecated).
 // Text-only: reads the OCR text layer, never the image.
 export const DEFAULT_AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
-// LLaVA 1.5 7B — current vision model (Beta). Reads image bytes directly via
-// the env.AI binding, so the real WhatsApp photo path (which has no server-side
-// OCR text) gets a real reading instead of falling through to manual entry.
-// The image is passed as a binary string; the model is instructed to return the
-// same §5.4 JSON schema as the text model.
-export const DEFAULT_AI_VISION_MODEL = "@cf/llava-hf/llava-1.5-7b-hf";
+// Llama 4 Scout 17B (16 experts) — natively multimodal, current catalog
+// vision model. Reads image bytes directly via the env.AI binding, so the
+// real WhatsApp photo path (which has no server-side OCR text) gets a real
+// reading instead of falling through to manual entry, and the webapp path
+// gets a real second opinion when local OCR text is garbage (isGarbageOcrText,
+// pipeline.ts). Replaced LLaVA 1.5 7B (Beta, a small general-purpose vision
+// chatbot) after it confidently misread a real receipt's total by 10x —
+// Scout is a much larger, newer, general text-and-image model, not
+// OCR-specialised, but materially stronger than the Beta LLaVA it replaced.
+// The image goes through as a base64 data URI in an OpenAI-style chat
+// message (Workers AI's documented multimodal format for this model),
+// unlike LLaVA's raw byte-array input.
+export const DEFAULT_AI_VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
 const MAX_TOKENS = 256;
 const TEMPERATURE = 0.1;
 
@@ -103,14 +110,21 @@ Extract ONLY values you can actually read in the image. A field is null unless y
 
 export function createWorkersAiVisionExtractor(ai: WorkersAi, model = DEFAULT_AI_VISION_MODEL): ImageBillExtractor {
   return {
-    async extractFromImage(imageBytes: Uint8Array): Promise<BillExtraction> {
-      // LLaVA takes the image as an array of byte numbers (the Cloudflare-
-      // documented input). A binary string would be re-encoded as UTF-8 on the
-      // wire — mangling every byte ≥ 0x80 and making the tensor undecodable
-      // (verified live: "failed to decode u8"). Numbers are byte-exact.
+    async extractFromImage(imageBytes: Uint8Array, mimeType = "image/jpeg"): Promise<BillExtraction> {
+      // Chat-completions style multimodal input (Workers AI's documented
+      // format for this model, matching the OpenAI-compatible vision schema):
+      // the image rides as a base64 data URI inside the message content
+      // array, not as a raw byte array (that was LLaVA's input shape).
       const result = await ai.run(model, {
-        image: Array.from(imageBytes),
-        prompt: VISION_SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: VISION_SYSTEM_PROMPT },
+              { type: "image_url", image_url: { url: `data:${mimeType};base64,${bytesToBase64(imageBytes)}` } },
+            ],
+          },
+        ],
         max_tokens: MAX_TOKENS,
         temperature: TEMPERATURE,
       });
@@ -119,6 +133,18 @@ export function createWorkersAiVisionExtractor(ai: WorkersAi, model = DEFAULT_AI
       return toBillExtraction(parseJsonResponse(result));
     },
   };
+}
+
+/** Base64-encode raw bytes for a data URI. Chunked to avoid blowing the call
+ *  stack on `String.fromCharCode(...bytes)` for large photos (a phone JPEG
+ *  can be well past the ~65k-argument spread limit). */
+function bytesToBase64(bytes: Uint8Array): string {
+  const CHUNK = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
 }
 
 /** Pull the text out of the model's response shape, then parse it as JSON —

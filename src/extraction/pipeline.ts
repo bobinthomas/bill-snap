@@ -24,8 +24,9 @@
  *
  * Photos WITHOUT OCR text (the real WhatsApp webhook path passes image bytes
  * only; there is no server-side OCR) go straight to the vision model
- * (`@cf/llava-hf/llava-1.5-7b-hf`) which reads the image bytes directly. If
- * that also fails, the photo produces source "none" → manual-entry prompt.
+ * (`@cf/meta/llama-4-scout-17b-16e-instruct`) which reads the image bytes
+ * directly. If that also fails, the photo produces source "none" →
+ * manual-entry prompt.
  */
 import type { AppConfig } from "../config";
 import type { GatingLevel } from "../types";
