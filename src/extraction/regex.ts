@@ -37,6 +37,29 @@ function rejoinLineWraps(text: string): string {
   );
 }
 
+/**
+ * True when OCR text is mostly meaningless short fragments — the signature of
+ * a badly misread photo (low light, texture, blur, skew), not a genuine
+ * reading. Real receipt and typed text is dominated by words several letters
+ * long; garbage Tesseract output is dominated by 1–2 letter alphabetic
+ * fragments ("Ey", "RO", "ry", "TS", "a", "er"…). Verified live: a receipt
+ * whose local OCR read was this kind of noise had its own bill/token
+ * reference number survive as the only clean digit run — through TWO
+ * different Tesseract configs, each time a DIFFERENT reference number, which
+ * defeated any text-pattern guard aimed at a specific label. Any amount
+ * `findAmount` reports from text like this is a guess about which stray
+ * digit run is the total, not a reading. Exported so the pipeline can route
+ * these photos to the vision model instead of trusting the guess.
+ * The length-8 floor keeps short, deliberately terse typed/OCR text ("wages
+ * 500 rajesh", "internet 99.95 telstra gst") from being misjudged as garbage.
+ */
+export function isGarbageOcrText(text: string): boolean {
+  const tokens = text.split(/\s+/).filter((w) => /^[A-Za-z]+$/.test(w));
+  if (tokens.length < 8) return false;
+  const short = tokens.filter((w) => w.length <= 2).length;
+  return short / tokens.length >= 0.5;
+}
+
 export function extractFromText(text: string, knownVendors?: string[]): BillExtraction {
   text = rejoinLineWraps(text);
   const dateValue = findDate(text);

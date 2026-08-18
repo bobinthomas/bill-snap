@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config";
 import { classify } from "../src/extraction/gate";
 import { createExtractionService } from "../src/extraction/pipeline";
-import { extractFromText, mergeKnownVendors } from "../src/extraction/regex";
+import { extractFromText, isGarbageOcrText, mergeKnownVendors } from "../src/extraction/regex";
 import type { WorkersAi } from "../src/extraction/workers-ai";
 import {
   computeGst,
@@ -153,6 +153,27 @@ describe("normaliseExtraction (shared validation layer)", () => {
   it("normalises AU dates to ISO", () => {
     const out = normaliseExtraction(extraction({ date: { value: "10/08/2026", confidence: 0.99 } }), true);
     expect(out.date.value).toBe("2026-08-10");
+  });
+});
+
+describe("isGarbageOcrText", () => {
+  it("flags dense short-fragment noise as garbage", () => {
+    // The real VRAJ RESTAURANT read: near-total misfire, dominated by 1-2
+    // letter fragments.
+    expect(isGarbageOcrText("Ey ral RO 3h ry SDS TS a er ae RAV tg Le AY FUSES h")).toBe(true);
+  });
+
+  it("does not flag short typed or shorthand OCR text", () => {
+    expect(isGarbageOcrText("wages 500 rajesh")).toBe(false);
+    expect(isGarbageOcrText("internet 99.95 telstra gst")).toBe(false);
+  });
+
+  it("does not flag a real (if messy) receipt read", () => {
+    expect(
+      isGarbageOcrText(
+        "RELIANCE HYPERMART LIMITED MADURAI IN DATE 09/05/2009 TIME 19:07:22 AMOUNT Rs 321.68 TOTAL Rs 321.68",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -824,5 +845,56 @@ describe("extraction pipeline — Workers AI fallback (env.AI)", () => {
     expect(called).toBe(false);
     expect(outcome.source).toBe("ocr");
     expect(outcome.extraction.amount.value).toBe(99.95);
+  });
+
+  // Real VRAJ RESTAURANT receipt: garbage OCR left a bill/token reference
+  // number ("6424") as the only clean digit run, so regex "found" it as the
+  // amount — a wrong but non-null guess the old code trusted outright.
+  const GARBAGE_OCR = "Ey ral RO 3h ry SDS TS a er ae RAV tg Le AY FUSES h RE Cashier he BING, 6424 mies";
+
+  const VISION_JSON = JSON.stringify({
+    amount: 1249,
+    vendor: "Vraj Restaurant",
+    date: "28/12/2024",
+    abn: null,
+    gst: null,
+    gst_basis: "none",
+    category: "misc",
+    invoice_number: null,
+    due_date: null,
+    confidence: "high",
+  });
+
+  it("escalates to the vision model when OCR text is garbage, overriding the regex guess", async () => {
+    let visionCalled = false;
+    const ai = fakeAi({ response: VISION_JSON }, (model) => {
+      if (model === "@cf/llava-hf/llava-1.5-7b-hf") visionCalled = true;
+    });
+    const service = createExtractionService(CONFIG, ai);
+    // Sanity check: regex alone really does pick the wrong reference number.
+    expect(extractFromText(GARBAGE_OCR).amount.value).toBe(6424);
+
+    const outcome = await service.run({
+      ocrText: GARBAGE_OCR,
+      imageBytes: new Uint8Array([0xff, 0xd8, 0xff, 0xe0]),
+      imageMimeType: "image/jpeg",
+    });
+    expect(visionCalled).toBe(true);
+    expect(outcome.source).toBe("ai");
+    expect(outcome.machineRead).toBe(false); // trusted parser — auto-log eligible (§5.8)
+    expect(outcome.extraction.amount.value).toBe(1249);
+    expect(outcome.extraction.vendor.value).toBe("Vraj Restaurant");
+  });
+
+  it("keeps the regex guess when OCR text is garbage but no image bytes exist", async () => {
+    let called = false;
+    const ai = fakeAi({ response: VISION_JSON }, () => {
+      called = true;
+    });
+    const service = createExtractionService(CONFIG, ai);
+    const outcome = await service.run({ ocrText: GARBAGE_OCR });
+    expect(called).toBe(false); // no bytes to show the vision model
+    expect(outcome.source).toBe("ocr");
+    expect(outcome.extraction.amount.value).toBe(6424); // still wrong, but nothing better available
   });
 });

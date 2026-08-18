@@ -7,9 +7,14 @@
  *    (the primary parser — §5.3).
  * 2. If regex cannot find the amount (the core extraction failure), the same
  *    OCR text goes to Workers AI (`env.AI`, no external API) as the fallback.
- * 3. If that also fails (garbage/unparseable JSON — the extractor throws), the
- *    regex result stands and the low gate routes the user to manual entry
- *    ("AMOUNT CATEGORY VENDOR").
+ * 3. If the OCR text itself is mostly garbage (`isGarbageOcrText` — a badly
+ *    misread photo, not a genuine reading; verified live: a receipt's own
+ *    bill/token reference number survived as the only clean digit run and
+ *    won the regex fallback), neither step above can be trusted — the vision
+ *    model gets a real look at the photo bytes instead, when they're in hand.
+ * 4. If everything above fails (garbage/unparseable JSON — the extractor
+ *    throws, or no image bytes exist), the regex result stands and the low
+ *    gate routes the user to manual entry ("AMOUNT CATEGORY VENDOR").
  *
  * §5.8 trust posture: Workers AI readings (text + vision) are the trusted
  * parser — High-confidence AI readings auto-log with the 24-hour undo window,
@@ -18,7 +23,7 @@
  * confirm screen (§5.4 level 3, §6.2 Variant C).
  *
  * Photos WITHOUT OCR text (the real WhatsApp webhook path passes image bytes
- * only; there is no server-side OCR) go to the vision model
+ * only; there is no server-side OCR) go straight to the vision model
  * (`@cf/llava-hf/llava-1.5-7b-hf`) which reads the image bytes directly. If
  * that also fails, the photo produces source "none" → manual-entry prompt.
  */
@@ -27,7 +32,7 @@ import type { GatingLevel } from "../types";
 import type { BillExtraction } from "../types";
 import { classify } from "./gate";
 import { createMockWorkersAiExtractor } from "./mock";
-import { extractFromText } from "./regex";
+import { extractFromText, isGarbageOcrText } from "./regex";
 import { normaliseExtraction } from "./validate";
 import {
   createWorkersAiExtractor,
@@ -103,6 +108,21 @@ export function createExtractionService(config: AppConfig, ai?: WorkersAi): Extr
             source = "ai";
           } catch (err) {
             console.warn(`[extraction] Workers AI failed, keeping regex result: ${(err as Error).message}`);
+          }
+        }
+        // The browser's local OCR can misread a photo so badly the text
+        // itself is mostly noise — neither regex nor the text model above can
+        // recover a real reading from text that never had one (verified
+        // live: a receipt's own bill/token reference number survived as the
+        // only clean digit run and won the regex fallback, through two
+        // different Tesseract configs). When the photo bytes are in hand,
+        // give the vision model a real look instead of trusting the guess.
+        if (isGarbageOcrText(input.ocrText) && input.imageBytes && input.imageBytes.length > 0 && visionExtractor) {
+          try {
+            raw = await visionExtractor.extractFromImage(input.imageBytes, input.imageMimeType);
+            source = "ai";
+          } catch (err) {
+            console.warn(`[extraction] Workers AI vision failed, keeping OCR/text result: ${(err as Error).message}`);
           }
         }
       } else if (input.text && input.text.trim() !== "") {
