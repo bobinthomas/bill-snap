@@ -165,6 +165,22 @@ export async function webPhoto(
   await route(event, webDeps(config, ai, deviceId, bindings));
 }
 
+/**
+ * Manual entry: skips the photo/OCR step entirely and creates a blank draft
+ * that lands straight on the confirm screen with every field "Not found —
+ * edit to add" — exactly the fallback the pipeline already uses when a photo
+ * can't be read at all (extraction/pipeline.ts). The webapp then jumps the
+ * user straight into editing the amount (the one field every bill needs).
+ */
+export async function webManualEntry(
+  config: AppConfig,
+  ai: WorkersAi | undefined,
+  deviceId: string,
+  bindings?: CloudBindings,
+): Promise<void> {
+  await webPhoto(config, ai, deviceId, null, undefined, undefined, undefined, bindings);
+}
+
 export async function webAction(
   config: AppConfig,
   ai: WorkersAi | undefined,
@@ -362,6 +378,11 @@ ${BASE_STYLES}
   #hero { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 8px; }
   #hero .hero-icon, #hero .big, #hero .sub { grid-column: 1 / -1; }
   #hero .btn-lg { width: 100%; margin: 7px 0; padding: 13px 8px; font-size: 13px; }
+  #hero .btn-manual {
+    grid-column: 1 / -1; background: transparent; border-color: transparent;
+    color: var(--text-faint); font-weight: 600; margin: 2px 0 0; padding: 10px 8px;
+  }
+  #hero .btn-manual:hover { background: var(--surface-2); color: var(--text-dim); }
   .btn-lg {
     display: flex; align-items: center; justify-content: center; gap: 9px;
     width: 100%; border: 1px solid transparent; border-radius: var(--radius-md);
@@ -405,6 +426,7 @@ ${BASE_STYLES}
   }
   .edit-btn .icon { width: 14px; height: 14px; }
   #editbox { display: none; margin: 12px 0; }
+  #editbox .edit-label { font-size: 12px; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
   #editbox input.text-input { width: 100%; padding: 14px; font-size: 16px; margin-bottom: 8px; }
   h3 { font-size: 11.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .05em; font-weight: 700; margin: 22px 0 8px; }
   #recent { margin: 0; padding: 0; list-style: none; }
@@ -444,6 +466,7 @@ ${BASE_STYLES}
       <div class="sub">Take a photo of any bill or invoice — I'll read the amount, date, vendor, and GST, and you confirm.</div>
       <button class="btn-lg primary" id="camera">${iconCamera}<span>Take photo</span></button>
       <button class="btn-lg ghost" id="gallery">${iconImage}<span>Gallery</span></button>
+      <button class="btn-lg btn-manual" id="manual">${iconPencil}<span>Enter manually</span></button>
     </div>
     <input type="file" id="file" accept="image/*" hidden />
     <img id="preview" alt="bill preview" />
@@ -451,6 +474,7 @@ ${BASE_STYLES}
     <div id="reply" class="notice"></div>
     <div id="draft"></div>
     <div id="editbox">
+      <div id="editlabel" class="edit-label"></div>
       <input id="editvalue" class="text-input" placeholder="Value…" />
       <button class="btn-lg primary" id="editsave">Save</button>
       <button class="btn-lg ghost" id="editcancel">Cancel</button>
@@ -494,6 +518,12 @@ ${BASE_STYLES}
   let lastName = "";
   let editing = false;
   let autoSave = true;
+
+  const EDIT_META = {
+    editing_amount: { label: "Amount", placeholder: "e.g. 45.00", inputmode: "decimal" },
+    editing_vendor: { label: "Vendor", placeholder: "Vendor or business name", inputmode: "text" },
+    editing_date: { label: "Date", placeholder: "e.g. 19/08/2026", inputmode: "text" },
+  };
 
   async function refresh() {
     const res = await fetch("/app/state?device=" + encodeURIComponent(device));
@@ -563,6 +593,10 @@ ${BASE_STYLES}
       wrap.innerHTML = "";
       actions.style.display = "none";
       editing = true;
+      const meta = EDIT_META[d.flowState] || { label: "Value", placeholder: "Value…", inputmode: "text" };
+      $("editlabel").textContent = meta.label;
+      $("editvalue").placeholder = meta.placeholder;
+      $("editvalue").setAttribute("inputmode", meta.inputmode);
       $("editbox").style.display = "block";
       $("editvalue").focus();
       return;
@@ -701,6 +735,16 @@ ${BASE_STYLES}
   fileInput.onchange = () => {
     const f = fileInput.files && fileInput.files[0];
     if (f) sendBill(f, f.name, false);
+  };
+  // Manual entry: create a blank draft (no photo) and jump straight into
+  // editing the amount — the one field every bill needs.
+  $("manual").onclick = async () => {
+    await fetch("/app/manual", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device }),
+    });
+    await act("2");
   };
   $("editsave").onclick = () => {
     const v = $("editvalue").value.trim();

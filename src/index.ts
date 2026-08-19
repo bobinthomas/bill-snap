@@ -25,6 +25,7 @@ import {
   stashWebMedia,
   webAction,
   webAppState,
+  webManualEntry,
   webPhoto,
 } from "./webapp/app";
 import { createD1BusinessStore, type BusinessStore } from "./db/businesses";
@@ -207,6 +208,16 @@ export function createApp(deps: AppDeps = {}) {
     const ocrCfg = form?.get("ocrConfig");
     const ocrConfig = typeof ocrCfg === "string" && ocrCfg.trim() !== "" ? ocrCfg : undefined;
     await webPhoto(config, aiBinding(c.env), device, mediaId, fileName, ocrText, ocrConfig, cloudBindings(c.env));
+    return c.json(await webAppState(config, aiBinding(c.env), device, cloudBindings(c.env)));
+  });
+  app.post("/app/manual", async (c) => {
+    const config = loadConfig(c.env);
+    const body = (await c.req.json().catch(() => ({}))) as { device?: unknown };
+    if (typeof body.device !== "string" || body.device.trim() === "") {
+      return c.json({ error: "device required" }, 400);
+    }
+    const device = body.device.trim();
+    await webManualEntry(config, aiBinding(c.env), device, cloudBindings(c.env));
     return c.json(await webAppState(config, aiBinding(c.env), device, cloudBindings(c.env)));
   });
   app.post("/app/action", async (c) => {

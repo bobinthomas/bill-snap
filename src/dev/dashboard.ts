@@ -355,18 +355,34 @@ ${BASE_STYLES}
   .bar-track { background: var(--surface-3); border-radius: 4px; height: 8px; overflow: hidden; }
   .bar-fill { background: var(--accent); height: 100%; border-radius: 4px; }
   .bar-row .amt { text-align: right; color: var(--text-faint); font-variant-numeric: tabular-nums; }
-  .days { display: flex; gap: 6px; align-items: flex-end; height: 120px; margin-top: 4px; }
-  .day { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .days-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 4px; }
+  .days { display: flex; gap: 6px; align-items: flex-end; height: 120px; }
+  .day { flex: 1; min-width: 20px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
   .day .bar { width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 2px; }
   .day .date { font-size: 10px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
   .day .count { font-size: 11px; color: var(--text); font-variant-numeric: tabular-nums; }
-  .table-scroll { overflow-x: auto; }
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
   th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
   th { color: var(--text-faint); font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; }
   tbody tr:hover td { background: var(--surface-2); }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .hint { margin-top: 16px; }
+
+  /* --- mobile: stack the toolbar, widen tap targets, keep everything in-frame --- */
+  @media (max-width: 720px) {
+    main { padding: 14px 12px; }
+    .toolbar { flex-direction: column; align-items: stretch; gap: 10px; }
+    .toolbar-actions .btn { flex: 1 1 auto; justify-content: center; }
+    .filters { flex-direction: column; align-items: stretch; gap: 8px; }
+    .filters label { width: 100%; }
+    .filters select { flex: 1; min-width: 0; }
+    .btn, select { min-height: 40px; }
+  }
+  @media (max-width: 420px) {
+    .bar-row { grid-template-columns: 72px 1fr 56px; gap: 6px; font-size: 11.5px; }
+    th, td { padding: 8px; font-size: 11.5px; }
+  }
 </style>
 </head>
 <body>
@@ -400,7 +416,7 @@ ${BASE_STYLES}
       <section class="panel"><h2>By category</h2><div id="cats"></div></section>
       <section class="panel"><h2>Top vendors</h2><div id="vendors"></div></section>
     </div>
-    <section class="panel" style="margin-top:12px;"><h2 id="days-title">Last 7 days</h2><div id="days"></div></section>
+    <section class="panel" style="margin-top:12px;"><h2 id="days-title">Last 7 days</h2><div class="days-scroll"><div id="days"></div></div></section>
     <section class="panel" style="margin-top:12px;"><h2>Recent bills</h2><div id="recent"></div></section>
     <p id="hint" class="hint">Bills confirmed in the <a href="/dev/demo">demo console</a> appear here automatically. <code>seed</code> logs a week of realistic bills through the real extraction pipeline. Persistence is in-memory until local D1 is configured (<code>npm run dev:full</code>).</p>
   </main>

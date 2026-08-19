@@ -196,6 +196,36 @@ describe("mobile-first webapp (/app)", () => {
     expect(dash.recent[0]?.vendorResolvedTo).toBe("Gujarat Freight Tools");
   });
 
+  it("creates a blank draft for manual entry and lets the user fill in the amount", async () => {
+    const app = createApp();
+    const device = "web_manual";
+
+    const manual = await post(app, "/app/manual", { device });
+    expect(manual.status).toBe(200);
+    const afterManual = (await manual.json()) as WebAppState;
+    expect(afterManual.draft?.flowState).toBe("awaiting_confirm");
+    expect(afterManual.draft?.extraction?.amount).toBeNull();
+    expect(afterManual.draft?.extraction?.vendor).toBeNull();
+
+    // The webapp jumps straight into editing the amount (option 2); typing a
+    // value re-renders the confirm screen with it filled in.
+    await post(app, "/app/action", { device, text: "2" });
+    const valueRes = await post(app, "/app/action", { device, text: "45.00" });
+    const state = (await valueRes.json()) as WebAppState;
+    expect(state.draft?.extraction?.amount).toBe(45);
+
+    // Confirm & Save logs it like any other bill.
+    await post(app, "/app/action", { device, text: "1" });
+    const finalRes = await app.request(`/app/state?device=${device}`, {}, ENV);
+    const final = (await finalRes.json()) as WebAppState;
+    expect(final.recent[0]?.amount).toBe(45);
+  });
+
+  it("requires a device id on manual entry", async () => {
+    const app = createApp();
+    expect((await post(app, "/app/manual", {})).status).toBe(400);
+  });
+
   it("routes a real uploaded image through the pipeline (bytes + storage)", async () => {
     const app = createApp();
     const bytes = new TextEncoder().encode("fake-web-bill-jpeg");
