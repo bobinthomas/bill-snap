@@ -11,6 +11,8 @@ import type { CloudBindings } from "../bindings";
 import type { DraftRecord } from "../db/drafts";
 import { mergeKnownVendors } from "../extraction/regex";
 import { demoDeps, DEMO_PHONE } from "./demo";
+import { iconBarChart, iconCheckCircle, iconDownload, iconHome, iconMessageCircle, iconReceipt, iconRefresh, iconSparkles, iconTag } from "./icons";
+import { BASE_STYLES } from "./theme";
 
 export interface CategoryStat {
   category: string;
@@ -328,88 +330,90 @@ const DASHBOARD_PAGE = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>BillSnap — dashboard</title>
 <style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: #0b141a; color: #e9edef; font-family: -apple-system, Segoe UI, Roboto, sans-serif; }
-  header { padding: 12px 20px; background: #1f2c34; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
-  header h1 { font-size: 16px; margin: 0; }
-  header a { color: #00a884; font-size: 13px; text-decoration: none; }
-  header a:hover { text-decoration: underline; }
-  #badge { font-size: 12px; color: #8696a0; }
-  main { max-width: 960px; margin: 0 auto; padding: 20px; }
-  #cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
-  .card { background: #1f2c34; border-radius: 10px; padding: 14px 16px; }
-  .card .label { font-size: 12px; color: #8696a0; text-transform: uppercase; letter-spacing: .04em; }
-  .card .value { font-size: 24px; font-weight: 700; margin-top: 4px; }
-  .card .sub { font-size: 12px; color: #8696a0; margin-top: 2px; }
-  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+${BASE_STYLES}
+  main { max-width: 1000px; margin: 0 auto; padding: 20px; }
+  .known-vendors { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 14px; min-height: 24px; }
+  .known-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); font-weight: 700; margin-right: 2px; }
+  .toolbar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  .toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .filters label { font-size: 12px; color: var(--text-faint); display: inline-flex; align-items: center; gap: 6px; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+  .kpi-card .kpi-icon {
+    display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+    border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent-text);
+  }
+  .kpi-card .kpi-icon .icon { width: 15px; height: 15px; }
+  .kpi-card .label { font-size: 11.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; }
+  .kpi-card .value { font-size: 23px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .kpi-card .sub { font-size: 11.5px; color: var(--text-faint); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
   @media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
-  section { background: #1f2c34; border-radius: 10px; padding: 16px; }
-  section h2 { font-size: 13px; margin: 0 0 12px; color: #8696a0; text-transform: uppercase; letter-spacing: .04em; }
-  .bar-row { display: grid; grid-template-columns: 110px 1fr 70px; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
-  .bar-row .name { text-align: right; color: #e9edef; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bar-track { background: #2a3942; border-radius: 4px; height: 14px; overflow: hidden; }
-  .bar-fill { background: #00a884; height: 100%; border-radius: 4px; }
-  .bar-row .amt { text-align: right; color: #8696a0; }
+  .bar-row { display: grid; grid-template-columns: 110px 1fr 76px; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 12.5px; }
+  .bar-row .name { text-align: right; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar-track { background: var(--surface-3); border-radius: 4px; height: 8px; overflow: hidden; }
+  .bar-fill { background: var(--accent); height: 100%; border-radius: 4px; }
+  .bar-row .amt { text-align: right; color: var(--text-faint); font-variant-numeric: tabular-nums; }
   .days { display: flex; gap: 6px; align-items: flex-end; height: 120px; margin-top: 4px; }
   .day { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-  .day .bar { width: 100%; background: #00a884; border-radius: 4px 4px 0 0; min-height: 2px; }
-  .day .date { font-size: 10px; color: #8696a0; }
-  .day .count { font-size: 11px; color: #e9edef; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #2a3942; }
-  th { color: #8696a0; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .day .bar { width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 2px; }
+  .day .date { font-size: 10px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+  .day .count { font-size: 11px; color: var(--text); font-variant-numeric: tabular-nums; }
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
+  th { color: var(--text-faint); font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; }
+  tbody tr:hover td { background: var(--surface-2); }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .tag { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
-  .tag.auto { background: #123b2c; color: #00a884; }
-  .tag.manual { background: #2a3942; color: #8696a0; }
-  .tag.none { background: #2a3942; color: #8696a0; }
-  #controls { margin: 12px 0; display: flex; gap: 8px; align-items: center; }
-  #filters { margin: 0 0 12px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-  #filters label { font-size: 12px; color: #8696a0; display: inline-flex; align-items: center; gap: 6px; }
-  select { background: #2a3942; color: #e9edef; border: none; border-radius: 8px; padding: 6px 10px; font-size: 13px; }
-  select:focus { outline: 1px solid #00a884; }
-  button { background: #00a884; color: #0b141a; border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
-  button.ghost { background: #2a3942; color: #e9edef; }
-  .empty { color: #8696a0; font-size: 13px; padding: 12px 0; }
-  #hint { font-size: 12px; color: #8696a0; margin-top: 16px; }
-  code { color: #ffa657; }
+  .hint { margin-top: 16px; }
 </style>
 </head>
 <body>
-  <header>
-    <h1>BillSnap — dashboard</h1>
-    <span id="badge"></span>
-    <span id="known"></span>
-    <a href="/dev/demo">💬 Demo console</a>
-    <a href="/">🏠 Landing</a>
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="brand-mark">${iconBarChart}</span>
+      <div><div class="brand-title">BillSnap</div><div class="brand-sub">Dashboard</div></div>
+    </div>
+    <nav class="topbar-nav">
+      <a class="nav-link" href="/dev/demo">${iconMessageCircle} Demo console</a>
+      <a class="nav-link" href="/">${iconHome} Landing</a>
+    </nav>
+    <div class="topbar-status"><span id="badge" class="status-badge"></span></div>
   </header>
   <main>
-    <div id="controls">
-      <button id="seed">✨ Seed sample bills</button>
-      <button id="refresh" class="ghost">Refresh</button>
-      <button id="export" class="ghost">⬇️ Export CSV</button>
+    <div id="known" class="known-vendors"></div>
+    <div class="toolbar">
+      <div class="toolbar-actions">
+        <button id="seed" class="btn btn-ghost">${iconSparkles}<span>Seed sample bills</span></button>
+        <button id="refresh" class="btn btn-ghost">${iconRefresh}<span>Refresh</span></button>
+        <button id="export" class="btn btn-primary">${iconDownload}<span>Export CSV</span></button>
+      </div>
+      <div id="filters" class="filters">
+        <label>Month <select id="f-month"></select></label>
+        <label>Category <select id="f-category"></select></label>
+        <label>Vendor <select id="f-vendor"></select></label>
+      </div>
     </div>
-    <div id="filters">
-      <label>Month <select id="f-month"></select></label>
-      <label>Category <select id="f-category"></select></label>
-      <label>Vendor <select id="f-vendor"></select></label>
-    </div>
-    <div id="cards"></div>
+    <div id="cards" class="kpi-grid"></div>
     <div class="cols">
-      <section><h2>By category</h2><div id="cats"></div></section>
-      <section><h2>Top vendors</h2><div id="vendors"></div></section>
+      <section class="panel"><h2>By category</h2><div id="cats"></div></section>
+      <section class="panel"><h2>Top vendors</h2><div id="vendors"></div></section>
     </div>
-    <section style="margin-top:12px;"><h2 id="days-title">Last 7 days</h2><div id="days"></div></section>
-    <section style="margin-top:12px;"><h2>Recent bills</h2><div id="recent"></div></section>
-    <div id="hint">Bills confirmed in the <a href="/dev/demo">demo console</a> appear here automatically. <code>seed</code> logs a week of realistic bills through the real extraction pipeline. Persistence is in-memory until local D1 is configured (<code>npm run dev:full</code>).</div>
+    <section class="panel" style="margin-top:12px;"><h2 id="days-title">Last 7 days</h2><div id="days"></div></section>
+    <section class="panel" style="margin-top:12px;"><h2>Recent bills</h2><div id="recent"></div></section>
+    <p id="hint" class="hint">Bills confirmed in the <a href="/dev/demo">demo console</a> appear here automatically. <code>seed</code> logs a week of realistic bills through the real extraction pipeline. Persistence is in-memory until local D1 is configured (<code>npm run dev:full</code>).</p>
   </main>
 <script>
   const $ = (id) => document.getElementById(id);
   function money(n) { return n === null ? "—" : "$" + n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+  function chip(text, variant) {
+    const cls = "chip" + (variant ? " chip-" + variant : "");
+    return '<span class="' + cls + '">' + esc(text) + "</span>";
+  }
   function bars(list, total) {
-    if (!list.length) return '<div class="empty">No bills yet — send a photo in the demo console or hit ✨ Seed.</div>';
+    if (!list.length) return '<div class="empty">No bills yet — send a photo in the demo console or hit Seed.</div>';
     return list.map((x) => {
       const pct = total > 0 ? Math.max(3, Math.round((x.amount / total) * 100)) : 0;
       return '<div class="bar-row"><span class="name" title="' + esc(x.category || x.vendor) + '">' + esc(x.category || x.vendor) + "</span>" +
@@ -427,34 +431,36 @@ const DASHBOARD_PAGE = `<!doctype html>
   }
   function table(bills) {
     if (!bills.length) return '<div class="empty">Nothing logged yet.</div>';
-    return "<table><thead><tr><th>Logged</th><th>Bill date</th><th>Vendor</th><th>Category</th>" +
+    return '<div class="table-scroll"><table><thead><tr><th>Logged</th><th>Bill date</th><th>Vendor</th><th>Category</th>' +
       '<th class="num">Amount</th><th class="num">GST</th><th>Invoice</th><th>ABN</th><th>Source</th></tr></thead><tbody>' +
       bills.map((b) => {
         const when = new Date(b.confirmedAt).toISOString().slice(0, 10);
-        const tag = b.autoLogged ? '<span class="tag auto">auto</span>' : '<span class="tag manual">manual</span>';
+        const tag = b.autoLogged ? chip("auto", "success") : chip("manual");
     const resolved = b.vendorResolvedTo
-      ? ' <span class="tag manual" title="canonicalised from a mangled OCR reading to a known merchant">resolved</span>'
+      ? " " + '<span title="canonicalised from a mangled OCR reading to a known merchant">' + chip("resolved") + "</span>"
       : "";
     return "<tr><td>" + when + "</td><td>" + esc(b.date || "—") + "</td><td>" + esc(b.vendor || "—") + resolved + "</td><td>" +
       esc(b.category) + '</td><td class="num">' + money(b.amount) + '</td><td class="num">' + money(b.gst) +
       "</td><td>" + esc(b.invoiceNumber || "—") + "</td><td>" + esc(b.abn || "—") + "</td><td>" + tag + "</td></tr>";
-      }).join("") + "</tbody></table>";
+      }).join("") + "</tbody></table></div>";
   }
   function render(d) {
-    $("badge").textContent = "persistence: " + d.persistence + " · " + d.totals.count + " logged" + (d.filters.month ? " · " + d.filters.month : "");
+    $("badge").innerHTML = chip(d.persistence === "d1" ? "D1 + R2" : "in-memory") +
+      chip(d.totals.count + " logged") +
+      (d.filters.month ? chip(d.filters.month, "accent") : "");
     const known = (d.knownVendors || []).filter((v) => !/^(telstra|origin energy|bunnings|caltex|homebase|rajesh|reliance hypermart limited|hdfc bank|gujarat freight tools)$/i.test(v));
-    $("known").textContent = known.length ? "🧠 learned vendors: " + known.join(", ") : "";
-    $("known").style.color = "#00a884";
-    $("known").style.fontSize = "12px";
+    $("known").innerHTML = known.length
+      ? '<span class="known-label">Learned vendors</span>' + known.map((v) => chip(v, "accent")).join("")
+      : "";
     $("hint").innerHTML = d.persistence === "d1"
       ? 'Bills confirmed in the <a href="/dev/demo">demo console</a> are written to the local D1 store — they survive page reloads. <code>seed</code> logs a week of realistic bills through the real extraction pipeline.'
       : 'Bills confirmed in the <a href="/dev/demo">demo console</a> appear here automatically. <code>seed</code> logs a week of realistic bills. Persistence is in-memory — start <code>npm run dev:full</code> (local D1 + R2) and demo entries will survive reloads.';
     $("cards").innerHTML = [
-      ["Bills logged", d.totals.count, ""],
-      ["Total spend", money(d.totals.amount), ""],
-      ["Total GST", money(d.totals.gst), ""],
-      ["Auto-logged", d.totals.autoLogged + " of " + d.totals.count, d.totals.autoLogged ? "24 h undo window" : ""],
-    ].map((c) => '<div class="card"><div class="label">' + c[0] + '</div><div class="value">' + c[1] + '</div><div class="sub">' + c[2] + "</div></div>").join("");
+      ['${iconReceipt}', "Bills logged", d.totals.count, ""],
+      ['${iconBarChart}', "Total spend", money(d.totals.amount), ""],
+      ['${iconTag}', "Total GST", money(d.totals.gst), ""],
+      ['${iconCheckCircle}', "Auto-logged", d.totals.autoLogged + " of " + d.totals.count, d.totals.autoLogged ? "24 h undo window" : ""],
+    ].map((c) => '<div class="kpi-card"><span class="kpi-icon">' + c[0] + '</span><div><div class="label">' + c[1] + '</div><div class="value">' + c[2] + '</div><div class="sub">' + c[3] + "</div></div></div>").join("");
     $("cats").innerHTML = bars(d.categories, d.totals.amount);
     $("vendors").innerHTML = bars(d.vendors, d.totals.amount);
     $("days-title").textContent = d.filters.month

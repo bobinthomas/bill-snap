@@ -26,6 +26,20 @@ import { createR2BillStorage, type BillStorage } from "../storage/bills";
 import type { InboundEvent } from "../types";
 import { route, type RouteDeps } from "../webhook/router";
 import { getSharedMemoryStack, resetSharedMemoryStack } from "../dev/memory";
+import {
+  iconAlertTriangle,
+  iconBarChart,
+  iconCamera,
+  iconCheckCircle,
+  iconImage,
+  iconPencil,
+  iconReceipt,
+  iconRefresh,
+  iconSearch,
+  iconUndo,
+  iconXCircle,
+} from "../dev/icons";
+import { BASE_STYLES } from "../dev/theme";
 
 /** Per-device bot messages (the UI shows the latest as a banner/toast). */
 const replies = new Map<string, string[]>();
@@ -293,95 +307,136 @@ const WEB_APP_PAGE = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>BillSnap</title>
 <style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; height: 100%; }
-  body { background: #0b141a; color: #e9edef; font-family: -apple-system, Segoe UI, Roboto, sans-serif; display: flex; flex-direction: column; }
-  header { padding: calc(12px + env(safe-area-inset-top)) 16px 12px; background: #1f2c34; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-  header h1 { font-size: 18px; margin: 0; }
-  header a { color: #00a884; font-size: 13px; text-decoration: none; }
-  header a:hover { text-decoration: underline; }
-  header .toggle { background: none; border: 1px solid #2a3942; color: #00a884; font-size: 12px; padding: 3px 8px; border-radius: 12px; cursor: pointer; font-family: inherit; }
-  header .toggle.off { color: #f15c6d; border-color: #f15c6d; }
-  main { flex: 1; overflow-y: auto; padding: 16px 16px calc(120px + env(safe-area-inset-bottom)); max-width: 560px; width: 100%; margin: 0 auto; }
-  #hero { text-align: center; padding: 28px 0 12px; }
-  #hero .big { font-size: 17px; color: #e9edef; margin-bottom: 6px; }
-  #hero .sub { font-size: 13px; color: #8696a0; margin-bottom: 20px; }
-  .btn { display: block; width: 100%; border: none; border-radius: 14px; padding: 16px; font-size: 17px; font-weight: 700; cursor: pointer; margin: 8px 0; }
-  .btn.primary { background: #00a884; color: #0b141a; }
-  .btn.ghost { background: #2a3942; color: #e9edef; }
-  .btn.danger { background: #3b1d1d; color: #f87171; }
-  .btn:disabled { opacity: .5; }
-  #preview { width: 100%; max-height: 300px; object-fit: contain; border-radius: 14px; background: #1f2c34; margin: 12px 0; display: none; }
-  #status { text-align: center; font-size: 14px; color: #7ee2a8; margin: 12px 0; display: none; }
-  #readback { display: none; background: #1f2c34; border: 1px solid #2a3942; border-radius: 14px; padding: 12px 14px; margin: 12px 0; font-size: 13px; }
-  #readback .cap { color: #00a884; font-weight: 700; margin-bottom: 6px; }
-  #readback .raw { color: #8696a0; white-space: pre-wrap; margin-top: 8px; font-size: 12px; border-top: 1px solid #2a3942; padding-top: 8px; }
-  #reply { display: none; background: #123b2c; border: 1px solid #00a884; color: #e9edef; border-radius: 14px; padding: 12px 14px; margin: 12px 0; font-size: 14px; white-space: pre-wrap; }
-  #reply.error { background: #3b1d1d; border-color: #f87171; }
-  .card { background: #1f2c34; border-radius: 16px; padding: 16px; margin: 12px 0; }
-  .card h2 { font-size: 14px; color: #8696a0; text-transform: uppercase; letter-spacing: .04em; margin: 0 0 10px; }
-  .row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #2a3942; font-size: 15px; }
+${BASE_STYLES}
+  * { -webkit-tap-highlight-color: transparent; }
+  body { height: 100dvh; display: flex; flex-direction: column; }
+  .topbar { padding-top: calc(10px + env(safe-area-inset-top)); }
+  .autosave-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
+    font-size: 12px; font-weight: 600; padding: 5px 10px 5px 8px; border-radius: var(--radius-pill);
+    cursor: pointer; font-family: inherit; transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+  }
+  .autosave-toggle .icon { width: 14px; height: 14px; }
+  .autosave-toggle.on { background: var(--success-soft); border-color: var(--success-border); color: var(--success-text); }
+  .autosave-toggle.off { background: var(--surface-2); border-color: var(--border); color: var(--text-faint); }
+  main { flex: 1; overflow-y: auto; padding: 16px 16px calc(132px + env(safe-area-inset-bottom)); max-width: 560px; width: 100%; margin: 0 auto; }
+  #hero { text-align: center; padding: 20px 0 8px; }
+  .hero-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 52px; height: 52px; border-radius: var(--radius-lg);
+    background: var(--accent-soft); color: var(--accent-text); border: 1px solid var(--accent-border);
+    margin-bottom: 14px;
+  }
+  .hero-icon .icon { width: 26px; height: 26px; }
+  #hero .big { font-size: 19px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+  #hero .sub { font-size: 13.5px; color: var(--text-faint); line-height: 1.5; margin-bottom: 20px; max-width: 44ch; margin-left: auto; margin-right: auto; }
+  .btn-lg {
+    display: flex; align-items: center; justify-content: center; gap: 9px;
+    width: 100%; border: 1px solid transparent; border-radius: var(--radius-md);
+    padding: 15px 16px; font-size: 16px; font-weight: 700; font-family: inherit;
+    cursor: pointer; margin: 7px 0;
+    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.08s ease, opacity 0.15s ease;
+  }
+  .btn-lg:active { transform: translateY(1px); }
+  .btn-lg:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-lg .icon { width: 19px; height: 19px; }
+  .btn-lg.primary { background: var(--accent-solid); color: #fff; }
+  .btn-lg.primary:hover { background: var(--accent-solid-hover); }
+  .btn-lg.ghost { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+  .btn-lg.ghost:hover { background: var(--surface-3); }
+  #preview { width: 100%; max-height: 280px; object-fit: contain; border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--border); margin: 12px 0; display: none; }
+  #status {
+    display: none; align-items: center; justify-content: center; gap: 8px;
+    text-align: center; font-size: 13.5px; color: var(--text-dim); margin: 12px 0;
+  }
+  #status .icon { width: 16px; height: 16px; }
+  @media (prefers-reduced-motion: no-preference) {
+    #status .icon { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  }
+  #reply { display: none; }
+  #readback { display: none; }
+  .readback-cap { display: flex; align-items: center; gap: 7px; color: var(--accent-text); font-weight: 700; margin-bottom: 8px; }
+  .readback-cap .icon { width: 15px; height: 15px; }
+  #readback .raw { color: var(--text-faint); white-space: pre-wrap; margin-top: 10px; font-size: 11.5px; border-top: 1px solid var(--border-soft); padding-top: 8px; font-family: var(--font-mono); }
+  .confidence-badge { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; margin-bottom: 12px; }
+  .confidence-badge .icon { width: 17px; height: 17px; flex: none; }
+  .confidence-badge.ok { color: var(--success-text); }
+  .confidence-badge.warn { color: var(--warn-text); }
+  .row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-soft); font-size: 15px; gap: 10px; }
   .row:last-child { border-bottom: none; }
-  .row .k { color: #8696a0; font-size: 13px; }
-  .row .v { font-weight: 600; text-align: right; }
-  .row .v.missing { color: #f0c36d; font-weight: 400; }
-  .row .v.warn { color: #f0c36d; }
-  .row .edit { background: #2a3942; color: #e9edef; border: none; border-radius: 8px; padding: 6px 12px; font-size: 13px; margin-left: 10px; cursor: pointer; }
-  .row .amount { font-size: 22px; font-weight: 800; color: #00a884; }
+  .row .k { color: var(--text-faint); font-size: 13px; flex: none; }
+  .row .v { font-weight: 600; text-align: right; display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+  .row .v.missing { color: var(--warn-text); font-weight: 400; font-size: 13px; }
+  .row .amount { font-size: 24px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
+  .edit-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; flex: none;
+    background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); cursor: pointer;
+  }
+  .edit-btn .icon { width: 14px; height: 14px; }
   #editbox { display: none; margin: 12px 0; }
-  #editbox input { width: 100%; background: #2a3942; color: #e9edef; border: none; border-radius: 12px; padding: 14px; font-size: 16px; margin-bottom: 8px; }
-  #editbox input:focus { outline: 1px solid #00a884; }
-  h3 { font-size: 13px; color: #8696a0; text-transform: uppercase; letter-spacing: .04em; margin: 20px 0 8px; }
+  #editbox input.text-input { width: 100%; padding: 14px; font-size: 16px; margin-bottom: 8px; }
+  h3 { font-size: 11.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .05em; font-weight: 700; margin: 22px 0 8px; }
   #recent { margin: 0; padding: 0; list-style: none; }
-  #recent li { display: flex; justify-content: space-between; align-items: center; padding: 10px 4px; border-bottom: 1px solid #2a3942; font-size: 14px; }
-  #recent .amt { font-weight: 700; }
-  #recent .who { color: #8696a0; font-size: 12px; }
-  .empty { color: #8696a0; font-size: 13px; padding: 8px 0; }
-  #actions { position: fixed; bottom: 0; left: 0; right: 0; background: #0b141a; border-top: 1px solid #2a3942; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); display: none; max-width: 560px; margin: 0 auto; }
-  #actions .btn { margin: 4px 0; }
-  code { color: #ffa657; }
-  #debug { margin: 28px 0 0; }
-  #debug summary { cursor: pointer; font-size: 12px; color: #8696a0; padding: 8px 0; list-style: none; }
+  #recent li { display: flex; justify-content: space-between; align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--border-soft); font-size: 14px; }
+  #recent li:last-child { border-bottom: none; }
+  #recent .amt { font-weight: 700; font-variant-numeric: tabular-nums; }
+  #recent .who { color: var(--text-faint); font-size: 11.5px; margin-top: 1px; }
+  #actions {
+    position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface);
+    border-top: 1px solid var(--border); padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    display: none; max-width: 560px; margin: 0 auto;
+  }
+  #actions .btn-lg { margin: 5px 0; }
+  #debug { margin: 26px 0 4px; }
+  #debug summary { cursor: pointer; font-size: 12px; color: var(--text-faint); padding: 8px 0; list-style: none; font-weight: 600; }
   #debug summary::-webkit-details-marker { display: none; }
   #debug summary::before { content: "▸ "; }
   #debug[open] summary::before { content: "▾ "; }
-  #debug[open] summary { color: #00a884; }
-  #debug .btn { margin: 10px 0; }
-  #badge { font-size: 11px; color: #8696a0; margin: 6px 0 2px; }
+  #debug[open] summary { color: var(--accent-text); }
+  #debug .btn-lg { margin: 10px 0; }
 </style>
 </head>
 <body>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@6/dist/tesseract.min.js"></script>
-  <header>
-    <h1>BillSnap</h1>
-    <a href="/dev/dashboard?device=" class="dash-link">📊 Dashboard</a>
-    <button id="autosaveToggle" class="toggle" title="High-confidence AI reads auto-log with a 24h undo when on; every bill needs Confirm &amp; Save when off"></button>
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="brand-mark">${iconCamera}</span>
+      <div class="brand-title">BillSnap</div>
+    </div>
+    <div class="topbar-status">
+      <a href="/dev/dashboard?device=" class="nav-link dash-link">${iconBarChart} Dashboard</a>
+      <button id="autosaveToggle" class="autosave-toggle" title="High-confidence AI reads auto-log with a 24h undo when on; every bill needs Confirm &amp; Save when off"></button>
+    </div>
   </header>
   <main>
     <div id="hero">
-      <div class="big">📸 Snap a bill</div>
+      <span class="hero-icon">${iconCamera}</span>
+      <div class="big">Snap a bill</div>
       <div class="sub">Take a photo of any bill or invoice — I'll read the amount, date, vendor, and GST, and you confirm.</div>
-      <button class="btn primary" id="camera">📷 Take photo</button>
-      <button class="btn ghost" id="gallery">🖼 Choose from gallery</button>
+      <button class="btn-lg primary" id="camera">${iconCamera}<span>Take photo</span></button>
+      <button class="btn-lg ghost" id="gallery">${iconImage}<span>Choose from gallery</span></button>
     </div>
     <input type="file" id="file" accept="image/*" hidden />
     <img id="preview" alt="bill preview" />
-    <div id="status">🔍 Reading…</div>
-    <div id="reply"></div>
+    <div id="status">${iconRefresh}<span>Reading…</span></div>
+    <div id="reply" class="notice"></div>
     <div id="draft"></div>
     <div id="editbox">
-      <input id="editvalue" placeholder="Value…" />
-      <button class="btn primary" id="editsave">Save</button>
-      <button class="btn ghost" id="editcancel">Cancel</button>
+      <input id="editvalue" class="text-input" placeholder="Value…" />
+      <button class="btn-lg primary" id="editsave">Save</button>
+      <button class="btn-lg ghost" id="editcancel">Cancel</button>
     </div>
     <h3>Recent bills</h3>
     <ul id="recent"></ul>
     <details id="debug">
       <summary>Debug info</summary>
-      <div id="badge"></div>
-      <button class="btn ghost" id="sample">🧾 Try a sample bill</button>
-      <div id="readback"></div>
+      <div id="badge" class="status-badge"></div>
+      <button class="btn-lg ghost" id="sample">${iconReceipt}<span>Try a sample bill</span></button>
+      <div id="readback" class="panel"></div>
     </details>
   </main>
   <div id="actions"></div>
@@ -389,6 +444,12 @@ const WEB_APP_PAGE = `<!doctype html>
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const money = (n) => n === null ? "Not found" : "$" + n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const ICON_CHECK = '${iconCheckCircle}';
+  const ICON_WARN = '${iconAlertTriangle}';
+  const ICON_CROSS = '${iconXCircle}';
+  const ICON_PENCIL = '${iconPencil}';
+  const ICON_UNDO = '${iconUndo}';
+  const ICON_SEARCH = '${iconSearch}';
 
   // Device identity: a stable browser id acts as the userPhone the router keys on.
   let device = localStorage.getItem("billsnap.device");
@@ -422,18 +483,23 @@ const WEB_APP_PAGE = `<!doctype html>
 
   $("autosaveToggle").onclick = () => act(autoSave ? "autosave off" : "autosave on");
 
+  function chip(text, variant) {
+    const cls = "chip" + (variant ? " chip-" + variant : "");
+    return '<span class="' + cls + '">' + esc(text) + "</span>";
+  }
+
   function render(s) {
     autoSave = s.autoSave;
     const toggle = $("autosaveToggle");
-    toggle.textContent = autoSave ? "🔐 Auto-save: ON" : "🔒 Auto-save: OFF";
-    toggle.className = "toggle" + (autoSave ? "" : " off");
-    $("badge").textContent = "persistence: " + s.persistence + " · extractor: " + s.extractor +
-      (s.recent.length ? " · " + s.recent.length + " logged" : "");
+    toggle.innerHTML = (autoSave ? ICON_CHECK : ICON_CROSS) + "<span>Auto-save " + (autoSave ? "on" : "off") + "</span>";
+    toggle.className = "autosave-toggle " + (autoSave ? "on" : "off");
+    $("badge").innerHTML = chip(s.persistence) + chip(s.extractor) + (s.recent.length ? chip(s.recent.length + " logged", "accent") : "");
     const reply = $("reply");
     if (s.lastReply && s.draft === null) {
-      reply.style.display = "block";
-      reply.textContent = s.lastReply;
-      reply.className = /undo|Undone|Skipped|Logged|Welcome/i.test(s.lastReply) ? "" : "error";
+      const ok = /undo|Undone|Skipped|Logged|Welcome/i.test(s.lastReply);
+      reply.style.display = "flex";
+      reply.className = "notice " + (ok ? "notice-success" : "notice-warn");
+      reply.innerHTML = '<span class="notice-icon">' + (ok ? ICON_CHECK : ICON_WARN) + "</span><span>" + esc(s.lastReply) + "</span>";
     } else {
       reply.style.display = "none";
     }
@@ -441,11 +507,11 @@ const WEB_APP_PAGE = `<!doctype html>
     if (s.ocrRead) {
       read.style.display = "block";
       const raw = s.ocrRead.ocrText.split(/\\r?\\n/).map((l) => l.trim()).filter((l) => l !== "").join("\\n");
-      read.innerHTML = '<div class="cap">🔎 OCR read' + (s.ocrRead.config ? " — " + esc(s.ocrRead.config) : "") + "</div>" +
+      read.innerHTML = '<div class="readback-cap">' + ICON_SEARCH + "<span>OCR read" + (s.ocrRead.config ? " — " + esc(s.ocrRead.config) : "") + "</span></div>" +
         "Amount: <strong>" + (s.ocrRead.amount === null ? "not found" : "$" + s.ocrRead.amount.toFixed(2)) + "</strong>" +
-        (s.ocrRead.amountLine ? ' <span style="color:#8696a0">(from line "' + esc(s.ocrRead.amountLine) + '")</span>' : "") + "<br/>" +
-        "Date: " + (s.ocrRead.date ?? "not found") + "<br/>" +
-        "Vendor: " + (s.ocrRead.vendor ?? "not found") +
+        (s.ocrRead.amountLine ? ' <span style="color:var(--text-faint)">(from line "' + esc(s.ocrRead.amountLine) + '")</span>' : "") + "<br/>" +
+        "Date: " + esc(s.ocrRead.date ?? "not found") + "<br/>" +
+        "Vendor: " + esc(s.ocrRead.vendor ?? "not found") +
         '<div class="raw">' + esc(raw) + "</div>";
     } else {
       read.style.display = "none";
@@ -456,7 +522,7 @@ const WEB_APP_PAGE = `<!doctype html>
       recent.innerHTML = '<li class="empty">Nothing logged yet.</li>';
     } else {
       recent.innerHTML = s.recent.map((b) =>
-        '<li><span>' + esc(b.vendor || "—") + '<div class="who">' + (b.category || "") + " · " + b.confirmedAt.slice(0, 10) + "</div></span>" +
+        '<li><span>' + esc(b.vendor || "—") + '<div class="who">' + esc(b.category || "") + " · " + b.confirmedAt.slice(0, 10) + "</div></span>" +
         '<span class="amt">' + money(b.amount) + "</span></li>"
       ).join("");
     }
@@ -483,26 +549,29 @@ const WEB_APP_PAGE = `<!doctype html>
     editing = false;
     $("editbox").style.display = "none";
     const e = d.extraction || {};
-    const flag = d.machineRead ? "⚠️ Machine-read, please verify" : d.gateLevel === "high" ? "✅ High confidence" : "⚠️ Check details";
+    const flagOk = !d.machineRead && d.gateLevel === "high";
+    const flagIcon = flagOk ? ICON_CHECK : ICON_WARN;
+    const flagText = d.machineRead ? "Machine-read, please verify" : flagOk ? "High confidence" : "Check details";
     const missing = '<span class="v missing">Not found — edit to add</span>';
-    const row = (k, v, warn, editAction) =>
-      '<div class="row"><span class="k">' + k + '</span><span class="v' + (warn ? " warn" : "") + '">' + v +
-      (editAction ? '<button class="edit" onclick="' + editAction + '">✏️</button>' : "") + "</span></div>";
+    const editBtn = (action) => '<button class="edit-btn" onclick="' + action + '">' + ICON_PENCIL + "</button>";
+    const row = (k, v, editAction) =>
+      '<div class="row"><span class="k">' + k + '</span><span class="v">' + v +
+      (editAction ? editBtn(editAction) : "") + "</span></div>";
     const amountCell = e.amount === null
       ? missing
-      : '<span class="v amount">' + money(e.amount) + '</span><button class="edit" onclick="act(\\'2\\')">✏️</button>';
-    wrap.innerHTML = '<div class="card"><h2>📄 ' + esc(flag) + "</h2>" +
+      : '<span class="v amount">' + money(e.amount) + "</span>" + editBtn("act('2')");
+    wrap.innerHTML = '<div class="panel"><div class="confidence-badge ' + (flagOk ? "ok" : "warn") + '">' + flagIcon + "<span>" + esc(flagText) + "</span></div>" +
       '<div class="row"><span class="k">Amount</span><span>' + amountCell + "</span></div>" +
-      row("Vendor", e.vendor === null ? "Not found — edit to add" : esc(e.vendor), false, "act('3')") +
-      row("Date", e.date === null ? "Not found — edit to add" : esc(e.date), false, "act('5')") +
-      row("ABN", e.abn === null ? "Not verified" : esc(e.abn), false, null) +
-      row("GST", e.gst === null ? "—" : money(e.gst), false, null) +
+      row("Vendor", e.vendor === null ? "Not found — edit to add" : esc(e.vendor), "act('3')") +
+      row("Date", e.date === null ? "Not found — edit to add" : esc(e.date), "act('5')") +
+      row("ABN", e.abn === null ? "Not verified" : esc(e.abn), null) +
+      row("GST", e.gst === null ? "—" : money(e.gst), null) +
       "</div>";
     actions.style.display = "block";
     actions.innerHTML =
-      '<button class="btn primary" onclick="act(\\'1\\')">✅ Confirm & Save</button>' +
-      '<button class="btn danger" onclick="act(\\'4\\')">🗑 Skip / Wrong bill</button>' +
-      '<button class="btn ghost" onclick="act(\\'delete\\')">↩️ Undo last</button>';
+      '<button class="btn-lg primary" onclick="act(\\'1\\')">' + ICON_CHECK + "<span>Confirm &amp; Save</span></button>" +
+      '<button class="btn-lg ghost" onclick="act(\\'4\\')">' + ICON_CROSS + "<span>Skip / Wrong bill</span></button>" +
+      '<button class="btn-lg ghost" onclick="act(\\'delete\\')">' + ICON_UNDO + "<span>Undo last</span></button>";
   }
 
   async function act(text) {
@@ -581,7 +650,7 @@ const WEB_APP_PAGE = `<!doctype html>
       img.style.display = "block";
     }
     const cfg = OCR_CONFIGS[ocrIndex % OCR_CONFIGS.length];
-    $("status").style.display = "block";
+    $("status").style.display = "flex";
     let ocrText = "";
     let prep = null;
     try {
