@@ -423,7 +423,6 @@ ${BASE_STYLES}
   #actions { display: none; gap: 8px; }
   #actions .btn-lg { flex: 1 1 0; min-width: 0; margin: 5px 0; padding-left: 8px; padding-right: 8px; font-size: 13px; }
   @media (max-width: 390px) { #actions { flex-wrap: wrap; } #actions .btn-lg { flex-basis: 100%; } }
-  @media (max-width: 350px) { #hero { display: block; } #hero .btn-lg { width: 100%; } }
 </style>
 </head>
 <body>
@@ -444,7 +443,7 @@ ${BASE_STYLES}
       <div class="big">Snap a bill</div>
       <div class="sub">Take a photo of any bill or invoice — I'll read the amount, date, vendor, and GST, and you confirm.</div>
       <button class="btn-lg primary" id="camera">${iconCamera}<span>Take photo</span></button>
-      <button class="btn-lg ghost" id="gallery">${iconImage}<span>Choose from gallery</span></button>
+      <button class="btn-lg ghost" id="gallery">${iconImage}<span>Gallery</span></button>
     </div>
     <input type="file" id="file" accept="image/*" hidden />
     <img id="preview" alt="bill preview" />
