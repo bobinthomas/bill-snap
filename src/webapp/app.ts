@@ -359,7 +359,9 @@ ${BASE_STYLES}
   .hero-icon .icon { width: 26px; height: 26px; }
   #hero .big { font-size: 19px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
   #hero .sub { font-size: 13.5px; color: var(--text-faint); line-height: 1.5; margin-bottom: 20px; max-width: 44ch; margin-left: auto; margin-right: auto; }
-  #hero .btn-lg { display: inline-flex; width: calc(50% - 6px); margin: 7px 2px; padding: 13px 8px; font-size: 13px; }
+  #hero { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 8px; }
+  #hero .hero-icon, #hero .big, #hero .sub { grid-column: 1 / -1; }
+  #hero .btn-lg { width: 100%; margin: 7px 0; padding: 13px 8px; font-size: 13px; }
   .btn-lg {
     display: flex; align-items: center; justify-content: center; gap: 9px;
     width: 100%; border: 1px solid transparent; border-radius: var(--radius-md);
@@ -421,7 +423,7 @@ ${BASE_STYLES}
   #actions { display: none; gap: 8px; }
   #actions .btn-lg { flex: 1 1 0; min-width: 0; margin: 5px 0; padding-left: 8px; padding-right: 8px; font-size: 13px; }
   @media (max-width: 390px) { #actions { flex-wrap: wrap; } #actions .btn-lg { flex-basis: 100%; } }
-  @media (max-width: 350px) { #hero .btn-lg { width: 100%; margin-left: 0; margin-right: 0; } }
+  @media (max-width: 350px) { #hero { display: block; } #hero .btn-lg { width: 100%; } }
 </style>
 </head>
 <body>
@@ -528,11 +530,13 @@ ${BASE_STYLES}
     } else {
       recent.innerHTML = s.recent.map((b) =>
         '<li><span class="recent-main"><strong>' + esc(b.vendor || "—") + '</strong><div class="who">' + esc(b.category || "") + " · " + b.confirmedAt.slice(0, 10) + "</div></span>" +
-        '<span class="recent-actions"><span class="amt">' + money(b.amount) + '</span><button class="btn-lg ghost delete-btn" onclick="act(\'delete:' + esc(b.id) + '\')">Delete · <span class="delete-countdown" data-until="' + esc(b.deleteUntil) + '">2 hrs</span></button></span></li>'
+        '<span class="recent-actions"><span class="amt">' + money(b.amount) + '</span><button class="btn-lg ghost delete-btn" data-delete-id="' + esc(b.id) + '" onclick="deleteBill(this.dataset.deleteId)">Delete · <span class="delete-countdown" data-until="' + esc(b.deleteUntil) + '">2 hrs</span></button></span></li>'
       ).join("");
       updateDeleteCountdowns();
     }
   }
+
+  function deleteBill(id) { act("delete:" + id); }
 
   function updateDeleteCountdowns() {
     document.querySelectorAll(".delete-countdown").forEach((el) => {
