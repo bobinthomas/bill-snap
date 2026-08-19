@@ -34,10 +34,9 @@ describe("mobile-first webapp (/app)", () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain("Take photo");
-    // Dev/test-only affordances (sample bill, persistence/extractor badge)
-    // live in a collapsed debug panel now — off the primary user flow.
-    expect(html).toContain("sample bill");
-    expect(html).toContain('id="debug"');
+    expect(html).toContain("Delete ·");
+    expect(html).not.toContain("Debug info");
+    expect(html).not.toContain("Try a sample bill");
     expect(html).toContain("billsnap.device");
   });
 
@@ -73,11 +72,15 @@ describe("mobile-first webapp (/app)", () => {
     expect(afterConfirm.lastReply).toContain("✅ Logged");
     expect(afterConfirm.recent.length).toBe(1);
     expect(afterConfirm.recent[0]!.amount).toBe(99.95);
+    expect(afterConfirm.recent[0]!.deleteUntil).toBeTruthy();
 
-    // Undo with delete (5-minute window for confirm-path bills).
-    const undo = await post(app, "/app/action", { device, text: "delete" });
+    // Delete from the recent list within the webapp's two-hour window.
+    const undo = await post(app, "/app/action", {
+      device,
+      text: "delete:" + afterConfirm.recent[0]!.id,
+    });
     const afterUndo = (await undo.json()) as WebAppState;
-    expect(afterUndo.lastReply).toContain("Undone");
+    expect(afterUndo.lastReply).toContain("Deleted");
     expect(afterUndo.recent.length).toBe(0);
   });
 

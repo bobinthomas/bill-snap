@@ -33,9 +33,7 @@ import {
   iconCheckCircle,
   iconImage,
   iconPencil,
-  iconReceipt,
   iconRefresh,
-  iconSearch,
   iconUndo,
   iconXCircle,
 } from "../dev/icons";
@@ -174,6 +172,10 @@ export async function webAction(
   text: string,
   bindings?: CloudBindings,
 ): Promise<void> {
+  if (text.startsWith("delete:")) {
+    await webDelete(config, ai, deviceId, text.slice("delete:".length), bindings);
+    return;
+  }
   const event: InboundEvent = {
     userPhone: deviceId,
     waMessageId: `web.${deviceId}.${Date.now()}`,
@@ -182,6 +184,28 @@ export async function webAction(
     text,
   };
   await route(event, webDeps(config, ai, deviceId, bindings));
+}
+
+async function webDelete(
+  config: AppConfig,
+  ai: WorkersAi | undefined,
+  deviceId: string,
+  billId: string,
+  bindings?: CloudBindings,
+): Promise<void> {
+  const deps = webDeps(config, ai, deviceId, bindings);
+  const bill = (await deps.drafts.listLogged(deviceId, 20)).find((entry) => entry.id === billId);
+  const cutoff = Date.now() - WEB_DELETE_WINDOW_MS;
+  if (!bill?.confirmedAt || bill.confirmedAt.getTime() < cutoff) {
+    const list = replies.get(deviceId) ?? [];
+    list.push("Delete window expired.");
+    replies.set(deviceId, list);
+    return;
+  }
+  await deps.drafts.softDeleteLogged(bill.id);
+  const list = replies.get(deviceId) ?? [];
+  list.push("Deleted from recent bills.");
+  replies.set(deviceId, list);
 }
 
 export interface WebDraftState {
@@ -224,8 +248,11 @@ export interface WebAppState {
     category: string;
     gst: number | null;
     autoLogged: boolean;
+    deleteUntil: string;
   }>;
 }
+
+const WEB_DELETE_WINDOW_MS = 2 * 60 * 60_000;
 
 export async function webAppState(
   config: AppConfig,
@@ -281,6 +308,7 @@ export async function webAppState(
       category: b.extraction?.category_hint?.value ?? "misc",
       gst: b.extraction?.gst.value ?? null,
       autoLogged: b.autoLogged ?? false,
+      deleteUntil: new Date((b.confirmedAt ?? b.createdAt).getTime() + WEB_DELETE_WINDOW_MS).toISOString(),
     })),
   };
 }
@@ -331,6 +359,7 @@ ${BASE_STYLES}
   .hero-icon .icon { width: 26px; height: 26px; }
   #hero .big { font-size: 19px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
   #hero .sub { font-size: 13.5px; color: var(--text-faint); line-height: 1.5; margin-bottom: 20px; max-width: 44ch; margin-left: auto; margin-right: auto; }
+  #hero .btn-lg { display: inline-flex; width: calc(50% - 6px); margin: 7px 2px; padding: 13px 8px; font-size: 13px; }
   .btn-lg {
     display: flex; align-items: center; justify-content: center; gap: 9px;
     width: 100%; border: 1px solid transparent; border-radius: var(--radius-md);
@@ -356,10 +385,6 @@ ${BASE_STYLES}
     @keyframes spin { to { transform: rotate(360deg); } }
   }
   #reply { display: none; }
-  #readback { display: none; }
-  .readback-cap { display: flex; align-items: center; gap: 7px; color: var(--accent-text); font-weight: 700; margin-bottom: 8px; }
-  .readback-cap .icon { width: 15px; height: 15px; }
-  #readback .raw { color: var(--text-faint); white-space: pre-wrap; margin-top: 10px; font-size: 11.5px; border-top: 1px solid var(--border-soft); padding-top: 8px; font-family: var(--font-mono); }
   .confidence-badge { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; margin-bottom: 12px; }
   .confidence-badge .icon { width: 17px; height: 17px; flex: none; }
   .confidence-badge.ok { color: var(--success-text); }
@@ -381,23 +406,22 @@ ${BASE_STYLES}
   #editbox input.text-input { width: 100%; padding: 14px; font-size: 16px; margin-bottom: 8px; }
   h3 { font-size: 11.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .05em; font-weight: 700; margin: 22px 0 8px; }
   #recent { margin: 0; padding: 0; list-style: none; }
-  #recent li { display: flex; justify-content: space-between; align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--border-soft); font-size: 14px; }
+  #recent li { display: flex; justify-content: space-between; align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--border-soft); font-size: 14px; gap: 10px; }
   #recent li:last-child { border-bottom: none; }
   #recent .amt { font-weight: 700; font-variant-numeric: tabular-nums; }
   #recent .who { color: var(--text-faint); font-size: 11.5px; margin-top: 1px; }
+  #recent .recent-main { min-width: 0; }
+  #recent .recent-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+  #recent .delete-btn { padding: 6px 9px; margin: 0; width: auto; font-size: 11.5px; font-weight: 600; border-radius: var(--radius-sm); }
   #actions {
     position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface);
     border-top: 1px solid var(--border); padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
     display: none; max-width: 560px; margin: 0 auto;
   }
-  #actions .btn-lg { margin: 5px 0; }
-  #debug { margin: 26px 0 4px; }
-  #debug summary { cursor: pointer; font-size: 12px; color: var(--text-faint); padding: 8px 0; list-style: none; font-weight: 600; }
-  #debug summary::-webkit-details-marker { display: none; }
-  #debug summary::before { content: "▸ "; }
-  #debug[open] summary::before { content: "▾ "; }
-  #debug[open] summary { color: var(--accent-text); }
-  #debug .btn-lg { margin: 10px 0; }
+  #actions { display: none; gap: 8px; }
+  #actions .btn-lg { flex: 1 1 0; min-width: 0; margin: 5px 0; padding-left: 8px; padding-right: 8px; font-size: 13px; }
+  @media (max-width: 390px) { #actions { flex-wrap: wrap; } #actions .btn-lg { flex-basis: 100%; } }
+  @media (max-width: 350px) { #hero .btn-lg { width: 100%; margin-left: 0; margin-right: 0; } }
 </style>
 </head>
 <body>
@@ -432,12 +456,7 @@ ${BASE_STYLES}
     </div>
     <h3>Recent bills</h3>
     <ul id="recent"></ul>
-    <details id="debug">
-      <summary>Debug info</summary>
-      <div id="badge" class="status-badge"></div>
-      <button class="btn-lg ghost" id="sample">${iconReceipt}<span>Try a sample bill</span></button>
-      <div id="readback" class="panel"></div>
-    </details>
+    <div id="badge" hidden></div>
   </main>
   <div id="actions"></div>
 <script>
@@ -449,7 +468,6 @@ ${BASE_STYLES}
   const ICON_CROSS = '${iconXCircle}';
   const ICON_PENCIL = '${iconPencil}';
   const ICON_UNDO = '${iconUndo}';
-  const ICON_SEARCH = '${iconSearch}';
 
   // Device identity: a stable browser id acts as the userPhone the router keys on.
   let device = localStorage.getItem("billsnap.device");
@@ -503,29 +521,29 @@ ${BASE_STYLES}
     } else {
       reply.style.display = "none";
     }
-    const read = $("readback");
-    if (s.ocrRead) {
-      read.style.display = "block";
-      const raw = s.ocrRead.ocrText.split(/\\r?\\n/).map((l) => l.trim()).filter((l) => l !== "").join("\\n");
-      read.innerHTML = '<div class="readback-cap">' + ICON_SEARCH + "<span>OCR read" + (s.ocrRead.config ? " — " + esc(s.ocrRead.config) : "") + "</span></div>" +
-        "Amount: <strong>" + (s.ocrRead.amount === null ? "not found" : "$" + s.ocrRead.amount.toFixed(2)) + "</strong>" +
-        (s.ocrRead.amountLine ? ' <span style="color:var(--text-faint)">(from line "' + esc(s.ocrRead.amountLine) + '")</span>' : "") + "<br/>" +
-        "Date: " + esc(s.ocrRead.date ?? "not found") + "<br/>" +
-        "Vendor: " + esc(s.ocrRead.vendor ?? "not found") +
-        '<div class="raw">' + esc(raw) + "</div>";
-    } else {
-      read.style.display = "none";
-    }
     renderDraft(s.draft);
     const recent = $("recent");
     if (!s.recent.length) {
       recent.innerHTML = '<li class="empty">Nothing logged yet.</li>';
     } else {
       recent.innerHTML = s.recent.map((b) =>
-        '<li><span>' + esc(b.vendor || "—") + '<div class="who">' + esc(b.category || "") + " · " + b.confirmedAt.slice(0, 10) + "</div></span>" +
-        '<span class="amt">' + money(b.amount) + "</span></li>"
+        '<li><span class="recent-main"><strong>' + esc(b.vendor || "—") + '</strong><div class="who">' + esc(b.category || "") + " · " + b.confirmedAt.slice(0, 10) + "</div></span>" +
+        '<span class="recent-actions"><span class="amt">' + money(b.amount) + '</span><button class="btn-lg ghost delete-btn" onclick="act(\'delete:' + esc(b.id) + '\')">Delete · <span class="delete-countdown" data-until="' + esc(b.deleteUntil) + '">2 hrs</span></button></span></li>'
       ).join("");
+      updateDeleteCountdowns();
     }
+  }
+
+  function updateDeleteCountdowns() {
+    document.querySelectorAll(".delete-countdown").forEach((el) => {
+      const remaining = new Date(el.dataset.until).getTime() - Date.now();
+      if (remaining <= 0) {
+        el.closest("button").remove();
+        return;
+      }
+      const minutes = Math.ceil(remaining / 60000);
+      el.textContent = minutes >= 60 ? Math.ceil(minutes / 60) + " hrs" : minutes + " min";
+    });
   }
 
   function renderDraft(d) {
@@ -567,7 +585,7 @@ ${BASE_STYLES}
       row("ABN", e.abn === null ? "Not verified" : esc(e.abn), null) +
       row("GST", e.gst === null ? "—" : money(e.gst), null) +
       "</div>";
-    actions.style.display = "block";
+    actions.style.display = "flex";
     actions.innerHTML =
       '<button class="btn-lg primary" onclick="act(\\'1\\')">' + ICON_CHECK + "<span>Confirm &amp; Save</span></button>" +
       '<button class="btn-lg ghost" onclick="act(\\'4\\')">' + ICON_CROSS + "<span>Skip / Wrong bill</span></button>" +
@@ -681,25 +699,6 @@ ${BASE_STYLES}
     const f = fileInput.files && fileInput.files[0];
     if (f) sendBill(f, f.name, false);
   };
-  $("sample").onclick = () => {
-    const c = document.createElement("canvas");
-    c.width = 640; c.height = 400;
-    const ctx = c.getContext("2d");
-    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, c.width, c.height);
-    ctx.fillStyle = "#111111";
-    ctx.font = "bold 36px sans-serif"; ctx.fillText("Origin Energy", 40, 64);
-    ctx.font = "26px sans-serif";
-    ctx.fillText("Electricity account", 40, 102);
-    ctx.fillText("10/08/2026", 40, 140);
-    ctx.fillText("Subtotal: $243.00", 40, 196);
-    ctx.fillText("GST: $24.30", 40, 234);
-    ctx.font = "bold 30px sans-serif";
-    ctx.fillText("Total:", 40, 290);
-    ctx.fillText("$267.30", 40, 328);
-    c.toBlob((blob) => {
-      if (blob) sendBill(new File([blob], "sample-bill.png", { type: "image/png" }), "sample-bill.png", false);
-    }, "image/png");
-  };
   $("editsave").onclick = () => {
     const v = $("editvalue").value.trim();
     if (v) { act(v); $("editvalue").value = ""; }
@@ -708,6 +707,7 @@ ${BASE_STYLES}
   $("editvalue").addEventListener("keydown", (ev) => { if (ev.key === "Enter") $("editsave").click(); });
   refresh();
   setInterval(refresh, 3000);
+  setInterval(updateDeleteCountdowns, 60000);
 </script>
 </body>
 </html>`;
