@@ -1,0 +1,1023 @@
+commit 45a3e46ba3bfedcbc2abb050f7074d2d080fa247
+Author: bobinthomas <bobinthomas@users.noreply.github.com>
+Date:   Wed Aug 19 16:00:42 2026 +0530
+
+    Redesign the demo console, dashboard, and webapp UI
+    
+    Replaces the literal WhatsApp-clone palette (#0b141a/#00a884/#005c4b)
+    across /dev/demo, /dev/dashboard, and /app with a shared design system
+    (src/dev/theme.ts, src/dev/icons.ts) — one accent color, consistent
+    chips/buttons/cards, and a hand-authored icon set replacing emoji-as-
+    UI-chrome. Fixes a `[hidden]` CSS override bug caught in browser
+    testing along the way.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+diff --git a/src/dev/dashboard.ts b/src/dev/dashboard.ts
+index bfc1ca1..71b7a9a 100644
+--- a/src/dev/dashboard.ts
++++ b/src/dev/dashboard.ts
+@@ -11,6 +11,8 @@ import type { CloudBindings } from "../bindings";
+ import type { DraftRecord } from "../db/drafts";
+ import { mergeKnownVendors } from "../extraction/regex";
+ import { demoDeps, DEMO_PHONE } from "./demo";
++import { iconBarChart, iconCheckCircle, iconDownload, iconHome, iconMessageCircle, iconReceipt, iconRefresh, iconSparkles, iconTag } from "./icons";
++import { BASE_STYLES } from "./theme";
+ 
+ export interface CategoryStat {
+   category: string;
+@@ -328,88 +330,90 @@ const DASHBOARD_PAGE = `<!doctype html>
+ <meta name="viewport" content="width=device-width, initial-scale=1" />
+ <title>BillSnap — dashboard</title>
+ <style>
+-  :root { color-scheme: dark; }
+-  * { box-sizing: border-box; }
+-  body { margin: 0; background: #0b141a; color: #e9edef; font-family: -apple-system, Segoe UI, Roboto, sans-serif; }
+-  header { padding: 12px 20px; background: #1f2c34; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+-  header h1 { font-size: 16px; margin: 0; }
+-  header a { color: #00a884; font-size: 13px; text-decoration: none; }
+-  header a:hover { text-decoration: underline; }
+-  #badge { font-size: 12px; color: #8696a0; }
+-  main { max-width: 960px; margin: 0 auto; padding: 20px; }
+-  #cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+-  .card { background: #1f2c34; border-radius: 10px; padding: 14px 16px; }
+-  .card .label { font-size: 12px; color: #8696a0; text-transform: uppercase; letter-spacing: .04em; }
+-  .card .value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+-  .card .sub { font-size: 12px; color: #8696a0; margin-top: 2px; }
+-  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
++${BASE_STYLES}
++  main { max-width: 1000px; margin: 0 auto; padding: 20px; }
++  .known-vendors { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 14px; min-height: 24px; }
++  .known-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); font-weight: 700; margin-right: 2px; }
++  .toolbar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
++  .toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
++  .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
++  .filters label { font-size: 12px; color: var(--text-faint); display: inline-flex; align-items: center; gap: 6px; }
++  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
++  .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
++  .kpi-card .kpi-icon {
++    display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;
++    border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent-text);
++  }
++  .kpi-card .kpi-icon .icon { width: 15px; height: 15px; }
++  .kpi-card .label { font-size: 11.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; }
++  .kpi-card .value { font-size: 23px; font-weight: 700; font-variant-numeric: tabular-nums; }
++  .kpi-card .sub { font-size: 11.5px; color: var(--text-faint); }
++  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
+   @media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
+-  section { background: #1f2c34; border-radius: 10px; padding: 16px; }
+-  section h2 { font-size: 13px; margin: 0 0 12px; color: #8696a0; text-transform: uppercase; letter-spacing: .04em; }
+-  .bar-row { display: grid; grid-template-columns: 110px 1fr 70px; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
+-  .bar-row .name { text-align: right; color: #e9edef; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+-  .bar-track { background: #2a3942; border-radius: 4px; height: 14px; overflow: hidden; }
+-  .bar-fill { background: #00a884; height: 100%; border-radius: 4px; }
+-  .bar-row .amt { text-align: right; color: #8696a0; }
++  .bar-row { display: grid; grid-template-columns: 110px 1fr 76px; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 12.5px; }
++  .bar-row .name { text-align: right; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
++  .bar-track { background: var(--surface-3); border-radius: 4px; height: 8px; overflow: hidden; }
++  .bar-fill { background: var(--accent); height: 100%; border-radius: 4px; }
++  .bar-row .amt { text-align: right; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+   .days { display: flex; gap: 6px; align-items: flex-end; height: 120px; margin-top: 4px; }
+   .day { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+-  .day .bar { width: 100%; background: #00a884; border-radius: 4px 4px 0 0; min-height: 2px; }
+-  .day .date { font-size: 10px; color: #8696a0; }
+-  .day .count { font-size: 11px; color: #e9edef; }
+-  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #2a3942; }
+-  th { color: #8696a0; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
++  .day .bar { width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 2px; }
++  .day .date { font-size: 10px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
++  .day .count { font-size: 11px; color: var(--text); font-variant-numeric: tabular-nums; }
++  .table-scroll { overflow-x: auto; }
++  table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
++  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
++  th { color: var(--text-faint); font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; }
++  tbody tr:hover td { background: var(--surface-2); }
+   td.num { text-align: right; font-variant-numeric: tabular-nums; }
+-  .tag { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+-  .tag.auto { background: #123b2c; color: #00a884; }
+-  .tag.manual { background: #2a3942; color: #8696a0; }
+-  .tag.none { background: #2a3942; color: #8696a0; }
+-  #controls { margin: 12px 0; display: flex; gap: 8px; align-items: center; }
+-  #filters { margin: 0 0 12px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+-  #filters label { font-size: 12px; color: #8696a0; display: inline-flex; align-items: center; gap: 6px; }
+-  select { background: #2a3942; color: #e9edef; border: none; border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+-  select:focus { outline: 1px solid #00a884; }
+-  button { background: #00a884; color: #0b141a; border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+-  button.ghost { background: #2a3942; color: #e9edef; }
+-  .empty { color: #8696a0; font-size: 13px; padding: 12px 0; }
+-  #hint { font-size: 12px; color: #8696a0; margin-top: 16px; }
+-  code { color: #ffa657; }
++  .hint { margin-top: 16px; }
+ </style>
+ </head>
+ <body>
+-  <header>
+-    <h1>BillSnap — dashboard</h1>
+-    <span id="badge"></span>
+-    <span id="known"></span>
+-    <a href="/dev/demo">💬 Demo console</a>
+-    <a href="/">🏠 Landing</a>
++  <header class="topbar">
++    <div class="topbar-brand">
++      <span class="brand-mark">${iconBarChart}</span>
++      <div><div class="brand-title">BillSnap</div><div class="brand-sub">Dashboard</div></div>
++    </div>
++    <nav class="topbar-nav">
++      <a class="nav-link" href="/dev/demo">${iconMessageCircle} Demo console</a>
++      <a class="nav-link" href="/">${iconHome} Landing</a>
++    </nav>
++    <div class="topbar-status"><span id="badge" class="status-badge"></span></div>
+   </header>
+   <main>
+-    <div id="controls">
+-      <button id="seed">✨ Seed sample bills</button>
+-      <button id="refresh" class="ghost">Refresh</button>
+-      <button id="export" class="ghost">⬇️ Export CSV</button>
+-    </div>
+-    <div id="filters">
+-      <label>Month <select id="f-month"></select></label>
+-      <label>Category <select id="f-category"></select></label>
+-      <label>Vendor <select id="f-vendor"></select></label>
++    <div id="known" class="known-vendors"></div>
++    <div class="toolbar">
++      <div class="toolbar-actions">
++        <button id="seed" class="btn btn-ghost">${iconSparkles}<span>Seed sample bills</span></button>
++        <button id="refresh" class="btn btn-ghost">${iconRefresh}<span>Refresh</span></button>
++        <button id="export" class="btn btn-primary">${iconDownload}<span>Export CSV</span></button>
++      </div>
++      <div id="filters" class="filters">
++        <label>Month <select id="f-month"></select></label>
++        <label>Category <select id="f-category"></select></label>
++        <label>Vendor <select id="f-vendor"></select></label>
++      </div>
+     </div>
+-    <div id="cards"></div>
++    <div id="cards" class="kpi-grid"></div>
+     <div class="cols">
+-      <section><h2>By category</h2><div id="cats"></div></section>
+-      <section><h2>Top vendors</h2><div id="vendors"></div></section>
++      <section class="panel"><h2>By category</h2><div id="cats"></div></section>
++      <section class="panel"><h2>Top vendors</h2><div id="vendors"></div></section>
+     </div>
+-    <section style="margin-top:12px;"><h2 id="days-title">Last 7 days</h2><div id="days"></div></section>
+-    <section style="margin-top:12px;"><h2>Recent bills</h2><div id="recent"></div></section>
+-    <div id="hint">Bills confirmed in the <a href="/dev/demo">demo console</a> appear here automatically. <code>seed</code> logs a week of realistic bills through the real extraction pipeline. Persistence is in-memory until local D1 is configured (<code>npm run dev:full</code>).</div>
++    <section class="panel" style="margin-top:12px;"><h2 id="days-title">Last 7 days</h2><div id="days"></div></section>
++    <section class="panel" style="margin-top:12px;"><h2>Recent bills</h2><div id="recent"></div></section>
++    <p id="hint" class="hint">Bills confirmed in the <a href="/dev/demo">demo console</a> appear here automatically. <code>seed</code> logs a week of realistic bills through the real extraction pipeline. Persistence is in-memory until local D1 is configured (<code>npm run dev:full</code>).</p>
+   </main>
+ <script>
+   const $ = (id) => document.getElementById(id);
+   function money(n) { return n === null ? "—" : "$" + n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+   function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
++  function chip(text, variant) {
++    const cls = "chip" + (variant ? " chip-" + variant : "");
++    return '<span class="' + cls + '">' + esc(text) + "</span>";
++  }
+   function bars(list, total) {
+-    if (!list.length) return '<div class="empty">No bills yet — send a photo in the demo console or hit ✨ Seed.</div>';
++    if (!list.length) return '<div class="empty">No bills yet — send a photo in the demo console or hit Seed.</div>';
+     return list.map((x) => {
+       const pct = total > 0 ? Math.max(3, Math.round((x.amount / total) * 100)) : 0;
+       return '<div class="bar-row"><span class="name" title="' + esc(x.category || x.vendor) + '">' + esc(x.category || x.vendor) + "</span>" +
+@@ -427,34 +431,36 @@ const DASHBOARD_PAGE = `<!doctype html>
+   }
+   function table(bills) {
+     if (!bills.length) return '<div class="empty">Nothing logged yet.</div>';
+-    return "<table><thead><tr><th>Logged</th><th>Bill date</th><th>Vendor</th><th>Category</th>" +
++    return '<div class="table-scroll"><table><thead><tr><th>Logged</th><th>Bill date</th><th>Vendor</th><th>Category</th>' +
+       '<th class="num">Amount</th><th class="num">GST</th><th>Invoice</th><th>ABN</th><th>Source</th></tr></thead><tbody>' +
+       bills.map((b) => {
+         const when = new Date(b.confirmedAt).toISOString().slice(0, 10);
+-        const tag = b.autoLogged ? '<span class="tag auto">auto</span>' : '<span class="tag manual">manual</span>';
++        const tag = b.autoLogged ? chip("auto", "success") : chip("manual");
+     const resolved = b.vendorResolvedTo
+-      ? ' <span class="tag manual" title="canonicalised from a mangled OCR reading to a known merchant">resolved</span>'
++      ? " " + '<span title="canonicalised from a mangled OCR reading to a known merchant">' + chip("resolved") + "</span>"
+       : "";
+     return "<tr><td>" + when + "</td><td>" + esc(b.date || "—") + "</td><td>" + esc(b.vendor || "—") + resolved + "</td><td>" +
+       esc(b.category) + '</td><td class="num">' + money(b.amount) + '</td><td class="num">' + money(b.gst) +
+       "</td><td>" + esc(b.invoiceNumber || "—") + "</td><td>" + esc(b.abn || "—") + "</td><td>" + tag + "</td></tr>";
+-      }).join("") + "</tbody></table>";
++      }).join("") + "</tbody></table></div>";
+   }
+   function render(d) {
+-    $("badge").textContent = "persistence: " + d.persistence + " · " + d.totals.count + " logged" + (d.filters.month ? " · " + d.filters.month : "");
++    $("badge").innerHTML = chip(d.persistence === "d1" ? "D1 + R2" : "in-memory") +
++      chip(d.totals.count + " logged") +
++      (d.filters.month ? chip(d.filters.month, "accent") : "");
+     const known = (d.knownVendors || []).filter((v) => !/^(telstra|origin energy|bunnings|caltex|homebase|rajesh|reliance hypermart limited|hdfc bank|gujarat freight tools)$/i.test(v));
+-    $("known").textContent = known.length ? "🧠 learned vendors: " + known.join(", ") : "";
+-    $("known").style.color = "#00a884";
+-    $("known").style.fontSize = "12px";
++    $("known").innerHTML = known.length
++      ? '<span class="known-label">Learned vendors</span>' + known.map((v) => chip(v, "accent")).join("")
++      : "";
+     $("hint").innerHTML = d.persistence === "d1"
+       ? 'Bills confirmed in the <a href="/dev/demo">demo console</a> are written to the local D1 store — they survive page reloads. <code>seed</code> logs a week of realistic bills through the real extraction pipeline.'
+       : 'Bills confirmed in the <a href="/dev/demo">demo console</a> appear here automatically. <code>seed</code> logs a week of realistic bills. Persistence is in-memory — start <code>npm run dev:full</code> (local D1 + R2) and demo entries will survive reloads.';
+     $("cards").innerHTML = [
+-      ["Bills logged", d.totals.count, ""],
+-      ["Total spend", money(d.totals.amount), ""],
+-      ["Total GST", money(d.totals.gst), ""],
+-      ["Auto-logged", d.totals.autoLogged + " of " + d.totals.count, d.totals.autoLogged ? "24 h undo window" : ""],
+-    ].map((c) => '<div class="card"><div class="label">' + c[0] + '</div><div class="value">' + c[1] + '</div><div class="sub">' + c[2] + "</div></div>").join("");
++      ['${iconReceipt}', "Bills logged", d.totals.count, ""],
++      ['${iconBarChart}', "Total spend", money(d.totals.amount), ""],
++      ['${iconTag}', "Total GST", money(d.totals.gst), ""],
++      ['${iconCheckCircle}', "Auto-logged", d.totals.autoLogged + " of " + d.totals.count, d.totals.autoLogged ? "24 h undo window" : ""],
++    ].map((c) => '<div class="kpi-card"><span class="kpi-icon">' + c[0] + '</span><div><div class="label">' + c[1] + '</div><div class="value">' + c[2] + '</div><div class="sub">' + c[3] + "</div></div></div>").join("");
+     $("cats").innerHTML = bars(d.categories, d.totals.amount);
+     $("vendors").innerHTML = bars(d.vendors, d.totals.amount);
+     $("days-title").textContent = d.filters.month
+diff --git a/src/dev/demo.ts b/src/dev/demo.ts
+index 34a2703..136d15d 100644
+--- a/src/dev/demo.ts
++++ b/src/dev/demo.ts
+@@ -20,7 +20,9 @@ import type { DownloadedMedia, Messenger } from "../messaging/whatsapp";
+ import { createR2BillStorage, type BillStorage } from "../storage/bills";
+ import type { InboundEvent } from "../types";
+ import { route, type RouteDeps } from "../webhook/router";
++import { iconAlertTriangle, iconBarChart, iconCamera, iconHelp, iconMessageCircle, iconReceipt, iconRefresh, iconSearch, iconSend, iconTrash } from "./icons";
+ import { getSharedMemoryStack, resetSharedMemoryStack } from "./memory";
++import { BASE_STYLES } from "./theme";
+ 
+ export const DEMO_PHONE = "61400000111";
+ export const DEMO_MEDIA_ID = "DEMO-MEDIA";
+@@ -274,51 +276,71 @@ const DEMO_PAGE = `<!doctype html>
+ <meta name="viewport" content="width=device-width, initial-scale=1" />
+ <title>BillSnap — browser demo</title>
+ <style>
+-  :root { color-scheme: dark; }
+-  * { box-sizing: border-box; }
+-  body { margin: 0; background: #0b141a; color: #e9edef; font-family: -apple-system, Segoe UI, Roboto, sans-serif; height: 100vh; display: flex; flex-direction: column; }
+-  header { padding: 12px 20px; background: #1f2c34; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+-  header h1 { font-size: 16px; margin: 0; }
+-  header a { color: #00a884; font-size: 13px; text-decoration: none; }
+-  header a:hover { text-decoration: underline; }
+-  #badge { font-size: 12px; color: #8696a0; }
+-  #mocknote, #ocrnote { display: none; margin: 8px 20px 0; padding: 8px 12px; border: 1px solid #a3712a; background: #33240f; color: #f0c36d; border-radius: 8px; font-size: 12px; }
+-  #ocrnote { border-color: #2a9d5f; background: #0f2e1e; color: #7ee2a8; }
+-  #chat { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 4px; }
+-  .msg { max-width: 70%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; font-size: 14px; margin: 2px 0; }
+-  .msg.user { align-self: flex-end; background: #005c4b; }
+-  .msg.bot { align-self: flex-start; background: #1f2c34; }
+-  .msg.system { align-self: center; background: transparent; color: #8696a0; font-size: 12px; }
+-  #controls { padding: 12px 20px; background: #1f2c34; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+-  button { background: #00a884; color: #0b141a; border: none; border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 600; cursor: pointer; }
+-  button.ghost { background: #2a3942; color: #e9edef; }
+-  input { flex: 1; min-width: 160px; background: #2a3942; color: #e9edef; border: none; border-radius: 8px; padding: 8px 12px; font-size: 14px; }
+-  input:focus { outline: 1px solid #00a884; }
+-  #hint { font-size: 12px; color: #8696a0; }
++${BASE_STYLES}
++  body { height: 100dvh; display: flex; flex-direction: column; }
++  #chat { flex: 1; overflow-y: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 6px; }
++  .msg {
++    max-width: 72%; padding: 9px 13px; border-radius: var(--radius-md);
++    white-space: pre-wrap; word-break: break-word; font-size: 13.5px; line-height: 1.5;
++    margin: 2px 0; box-shadow: var(--shadow-sm);
++  }
++  @media (prefers-reduced-motion: no-preference) { .msg { animation: msg-in 0.18s ease-out; } }
++  .msg.user { align-self: flex-end; background: #1c3766; color: #eef3ff; }
++  .msg.bot { align-self: flex-start; background: var(--surface-3); color: var(--text); }
++  .msg.system { align-self: center; background: transparent; color: var(--text-faint); font-size: 12px; box-shadow: none; }
++  .composer { padding: 12px 20px; background: var(--surface); border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
++  .composer-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
++  .composer-divider { width: 1px; height: 20px; background: var(--border); margin: 0 2px; }
++  .composer-reply { display: flex; gap: 8px; }
++  .composer-reply .text-input { flex: 1; min-width: 160px; }
++  #hint { padding: 10px 20px 14px; }
+ </style>
+ </head>
+ <body>
+ <script src="https://cdn.jsdelivr.net/npm/tesseract.js@6/dist/tesseract.min.js"></script>
+-  <header><h1>BillSnap — browser demo</h1><a href="/dev/dashboard">📊 Dashboard</a><span id="badge"></span></header>
+-  <div id="mocknote">⚠️ <strong>Mock extractor active</strong> — uploaded photos are <em>not</em> being read by the real parser. Readings are canned demo bills picked by a hash of the OCR text. Set <code>GEMINI_MOCK=false</code> and run with a Workers AI binding to use the real <code>env.AI</code> fallback.</div>
+-  <div id="ocrnote">🔍 <strong>Local OCR active</strong> — uploaded photos are read in your browser (tesseract.js) and the text is parsed by the regex extractor. No API needed; the Workers AI binding takes over as the fallback when regex fails.</div>
++  <header class="topbar">
++    <div class="topbar-brand">
++      <span class="brand-mark">${iconMessageCircle}</span>
++      <div><div class="brand-title">BillSnap</div><div class="brand-sub">Demo console</div></div>
++    </div>
++    <nav class="topbar-nav"><a class="nav-link" href="/dev/dashboard">${iconBarChart} Dashboard</a></nav>
++    <div class="topbar-status"><span id="badge" class="status-badge"></span></div>
++  </header>
++  <div id="mocknote" class="notice notice-warn">
++    <span class="notice-icon">${iconAlertTriangle}</span>
++    <span><strong>Mock extractor active</strong> — uploaded photos are <em>not</em> being read by the real parser. Readings are canned demo bills picked by a hash of the OCR text. Set <code>GEMINI_MOCK=false</code> and run with a Workers AI binding to use the real <code>env.AI</code> fallback.</span>
++  </div>
++  <div id="ocrnote" class="notice notice-success">
++    <span class="notice-icon">${iconSearch}</span>
++    <span><strong>Local OCR active</strong> — uploaded photos are read in your browser (tesseract.js) and the text is parsed by the regex extractor. No API needed; the Workers AI binding takes over as the fallback when regex fails.</span>
++  </div>
+   <div id="chat"></div>
+-  <div id="controls">
+-    <input type="file" id="file" accept="image/*" hidden />
+-    <button id="photo">📸 Send a bill photo</button>
+-    <button id="sample" class="ghost">🧾 Sample bill</button>
+-    <button id="retry" class="ghost" hidden>🔁 Retry OCR</button>
+-    <button id="help" class="ghost">help</button>
+-    <button id="undo" class="ghost">delete</button>
+-    <input id="text" placeholder="Reply as text… e.g. 1, 2, 3, 4, or setup" />
+-    <button id="send">Send</button>
++  <div class="composer">
++    <div class="composer-actions">
++      <input type="file" id="file" accept="image/*" hidden />
++      <button id="photo" class="btn btn-primary">${iconCamera}<span id="photo-label">Send a bill photo</span></button>
++      <button id="sample" class="btn btn-ghost">${iconReceipt}<span>Sample bill</span></button>
++      <button id="retry" class="btn btn-ghost" hidden>${iconRefresh}<span id="retry-label">Retry OCR</span></button>
++      <span class="composer-divider" aria-hidden="true"></span>
++      <button id="help" class="btn btn-icon" title="Help" aria-label="Help">${iconHelp}</button>
++      <button id="undo" class="btn btn-icon" title="Delete last" aria-label="Delete last">${iconTrash}</button>
++    </div>
++    <div class="composer-reply">
++      <input id="text" class="text-input" placeholder="Reply as text… e.g. 1, 2, 3, 4, or setup" />
++      <button id="send" class="btn btn-primary btn-icon" title="Send" aria-label="Send">${iconSend}</button>
++    </div>
+   </div>
+-  <div id="hint" style="padding: 0 20px 10px;">Tip: <strong>🧾 Sample bill</strong> draws a bill (Subtotal / GST / split-line Total) and OCRs it, so you can see the raw lines and the captured amount/date. If a reading looks wrong, hit <strong>🔁 Retry OCR</strong> — it re-reads the same photo with different tesseract settings (sparse layout, digit whitelist) and the read-back labels which one produced the reading. Or pick your own photo — read locally by OCR, with the Workers AI fallback when regex can't find the amount. Or send text like <code>wages 500 rajesh</code>. Reply 1 to confirm, 4 to skip, or delete to undo. OCR needs internet for its engine files (jsDelivr CDN) on first use.</div>
++  <p id="hint" class="hint">Tip: <strong>Sample bill</strong> draws a bill (Subtotal / GST / split-line Total) and OCRs it, so you can see the raw lines and the captured amount/date. If a reading looks wrong, hit <strong>Retry OCR</strong> — it re-reads the same photo with different tesseract settings (sparse layout, digit whitelist) and the read-back labels which one produced the reading. Or pick your own photo — read locally by OCR, with the Workers AI fallback when regex can't find the amount. Or send text like <code>wages 500 rajesh</code>. Reply 1 to confirm, 4 to skip, or delete to undo. OCR needs internet for its engine files (jsDelivr CDN) on first use.</p>
+ <script>
+   const chat = document.getElementById("chat");
+   const badge = document.getElementById("badge");
+   let rendered = 0;
+-  function esc(s) { return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
++  function chip(text, variant) {
++    const span = document.createElement("span");
++    span.className = "chip" + (variant ? " chip-" + variant : "");
++    span.textContent = text;
++    return span;
++  }
+   function render(state) {
+     while (rendered < state.messages.length) {
+       const m = state.messages[rendered++];
+@@ -329,12 +351,13 @@ const DEMO_PAGE = `<!doctype html>
+     }
+     chat.scrollTop = chat.scrollHeight;
+     const d = state.draft;
+-    badge.textContent = (state.persistence === "d1" ? "persistence: D1 + R2" : "persistence: in-memory") +
+-      " · extractor: " + state.extractor +
+-      (state.lastRead ? " · last read: " + state.lastRead : "") +
+-      (d ? " · draft: " + d.flowState + " (" + d.status + (d.gateLevel ? ", " + d.gateLevel : "") + ")" : " · no active draft");
+-    document.getElementById("mocknote").style.display = state.extractor === "mock (canned)" ? "block" : "none";
+-    document.getElementById("ocrnote").style.display = state.extractor === "local OCR" || state.extractor === "Workers AI + local OCR fallback" ? "block" : "none";
++    badge.innerHTML = "";
++    badge.appendChild(chip(state.persistence === "d1" ? "D1 + R2" : "in-memory"));
++    badge.appendChild(chip(state.extractor));
++    if (state.lastRead) badge.appendChild(chip("read: " + state.lastRead, "accent"));
++    badge.appendChild(chip(d ? d.flowState + " (" + d.status + (d.gateLevel ? ", " + d.gateLevel : "") + ")" : "no active draft", d ? "accent" : undefined));
++    document.getElementById("mocknote").style.display = state.extractor === "mock (canned)" ? "flex" : "none";
++    document.getElementById("ocrnote").style.display = state.extractor === "local OCR" || state.extractor === "Workers AI + local OCR fallback" ? "flex" : "none";
+   }
+   async function refresh() {
+     const res = await fetch("/dev/demo/state");
+@@ -346,6 +369,7 @@ const DEMO_PAGE = `<!doctype html>
+   }
+   const fileInput = document.getElementById("file");
+   const photoBtn = document.getElementById("photo");
++  const photoLabel = document.getElementById("photo-label");
+   photoBtn.onclick = () => fileInput.click();
+   // Local OCR (no API): read the image text in the browser, send it with the
+   // bytes. The pipeline labels it source "ocr" and regex-parses it.
+@@ -422,8 +446,8 @@ const DEMO_PAGE = `<!doctype html>
+     lastFile = f;
+     lastName = name;
+     const cfg = OCR_CONFIGS[ocrIndex % OCR_CONFIGS.length];
+-    const orig = photoBtn.textContent;
+-    photoBtn.textContent = "🔍 OCR reading image…";
++    const orig = photoLabel.textContent;
++    photoLabel.textContent = "OCR reading image…";
+     photoBtn.disabled = true;
+     let ocrText = "";
+     let prep = null;
+@@ -445,10 +469,10 @@ const DEMO_PAGE = `<!doctype html>
+     await fetch("/dev/demo/photo", { method: "POST", body: fd });
+     ocrIndex++;
+     fileInput.value = "";
+-    photoBtn.textContent = orig;
++    photoLabel.textContent = orig;
+     photoBtn.disabled = false;
+     retryBtn.hidden = false;
+-    retryBtn.textContent = "🔁 Retry OCR (next: " + OCR_CONFIGS[ocrIndex % OCR_CONFIGS.length].name + ")";
++    document.getElementById("retry-label").textContent = "Retry OCR (next: " + OCR_CONFIGS[ocrIndex % OCR_CONFIGS.length].name + ")";
+     await refresh();
+   }
+   retryBtn.onclick = () => { if (lastFile) sendBill(lastFile, lastName); };
+diff --git a/src/dev/icons.ts b/src/dev/icons.ts
+new file mode 100644
+index 0000000..54d0552
+--- /dev/null
++++ b/src/dev/icons.ts
+@@ -0,0 +1,75 @@
++/**
++ * One consistent line-icon family (24x24, 1.75 stroke, round caps) used across
++ * /dev/demo and /dev/dashboard. There's no bundler in this Hono/Worker project
++ * to pull an icon package from, so these are hand-authored — kept deliberately
++ * simple/geometric and shared from one module so both pages draw from the
++ * same set rather than drifting.
++ */
++const svg = (body: string) =>
++  `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
++
++export const iconCamera = svg(
++  `<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3.25"/>`,
++);
++
++export const iconReceipt = svg(
++  `<path d="M6 3h12v17l-2-1.3-2 1.3-2-1.3-2 1.3-2-1.3-2 1.3Z"/><path d="M8.5 8h7M8.5 11.5h7M8.5 15h4.5"/>`,
++);
++
++export const iconRefresh = svg(
++  `<path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/>`,
++);
++
++export const iconHelp = svg(
++  `<circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.5 2.5 0 1 1 3.6 2.25c-.9.45-1.35 1-1.35 1.8"/><circle cx="12" cy="16.6" r="0.65" fill="currentColor" stroke="none"/>`,
++);
++
++export const iconTrash = svg(
++  `<path d="M5 7h14M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-8 0 1 13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-13"/><path d="M10 11v6M14 11v6"/>`,
++);
++
++export const iconSend = svg(
++  `<path d="M20.5 3.5 3 10.2c-.7.3-.6 1.3.1 1.5l6.2 1.9 1.9 6.2c.2.7 1.2.8 1.5.1L20.5 3.5Z"/><path d="M9.5 13.7 20.5 3.5"/>`,
++);
++
++export const iconBarChart = svg(
++  `<rect x="4" y="12" width="3.5" height="8" rx="1"/><rect x="10.25" y="6" width="3.5" height="14" rx="1"/><rect x="16.5" y="9" width="3.5" height="11" rx="1"/>`,
++);
++
++export const iconMessageCircle = svg(
++  `<path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.4 0-2.7-.32-3.87-.9L4 20l1.03-4.2A8.5 8.5 0 1 1 21 11.5Z"/>`,
++);
++
++export const iconHome = svg(
++  `<path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h4v-5h2v5h4a1 1 0 0 0 1-1v-9"/>`,
++);
++
++export const iconSparkles = svg(
++  `<path d="M11 2 12.6 8.4 19 10l-6.4 1.6L11 18l-1.6-6.4L3 10l6.4-1.6Z"/><path d="M18 15l.7 2.3L21 18l-2.3.7L18 21l-.7-2.3L15 18l2.3-.7Z"/>`,
++);
++
++export const iconDownload = svg(`<path d="M12 4v11"/><path d="M7.5 11.5 12 16l4.5-4.5"/><path d="M5 20h14"/>`);
++
++export const iconAlertTriangle = svg(
++  `<path d="M12 4 22 20H2Z"/><path d="M12 10v4"/><circle cx="12" cy="17" r="0.7" fill="currentColor" stroke="none"/>`,
++);
++
++export const iconSearch = svg(`<circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8"/>`);
++
++export const iconTag = svg(
++  `<path d="M12 3h6a1 1 0 0 1 1 1v6L9.5 20.5a1 1 0 0 1-1.4 0l-6-6a1 1 0 0 1 0-1.4L12 3Z"/><circle cx="16" cy="8" r="1.4" fill="currentColor" stroke="none"/>`,
++);
++
++export const iconCheckCircle = svg(`<circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.5 2.5L16 9"/>`);
++
++export const iconXCircle = svg(`<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/>`);
++
++export const iconImage = svg(
++  `<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5" fill="currentColor" stroke="none"/><path d="m4 17 5-5 3.5 3.5L17 11l3 3"/>`,
++);
++
++export const iconPencil = svg(
++  `<path d="M4 20h4l10.5-10.5a2 2 0 0 0 0-2.83l-1.17-1.17a2 2 0 0 0-2.83 0L4 16v4Z"/><path d="M13.5 6.5 17.5 10.5"/>`,
++);
++
++export const iconUndo = svg(`<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 1 1 0 12H9"/>`);
+diff --git a/src/dev/theme.ts b/src/dev/theme.ts
+new file mode 100644
+index 0000000..20cd0f7
+--- /dev/null
++++ b/src/dev/theme.ts
+@@ -0,0 +1,182 @@
++/**
++ * Shared design tokens + component CSS for the /dev/demo and /dev/dashboard
++ * pages (DEV-only tool screens, never shipped to end users). Kept in one
++ * place so the two pages don't drift into different colors/radii — one
++ * accent, one shape system, per the taste checklist. Dark-only on purpose:
++ * these are internal engineering/analyst screens, not consumer-facing.
++ */
++export const BASE_STYLES = `
++  :root {
++    color-scheme: dark;
++    --bg: #0a0a0c;
++    --surface: #16161a;
++    --surface-2: #1e1e24;
++    --surface-3: #27272e;
++    --border: #2c2c34;
++    --border-soft: #232329;
++    --text: #f5f5f7;
++    --text-dim: #9d9da8;
++    --text-faint: #6c6c76;
++
++    --accent: #4c7cf0;
++    --accent-solid: #1d4ed8;
++    --accent-solid-hover: #1e40af;
++    --accent-soft: rgba(76, 124, 240, 0.14);
++    --accent-border: rgba(76, 124, 240, 0.4);
++    --accent-text: #9db8fb;
++
++    --success: #22c55e;
++    --success-soft: rgba(34, 197, 94, 0.14);
++    --success-border: rgba(34, 197, 94, 0.38);
++    --success-text: #7fe3a3;
++
++    --warn: #eab308;
++    --warn-soft: rgba(234, 179, 8, 0.12);
++    --warn-border: rgba(234, 179, 8, 0.38);
++    --warn-text: #f4cf6b;
++
++    --danger: #f87171;
++    --danger-soft: rgba(248, 113, 113, 0.12);
++    --danger-border: rgba(248, 113, 113, 0.38);
++
++    --radius-sm: 8px;
++    --radius-md: 12px;
++    --radius-lg: 18px;
++    --radius-pill: 999px;
++
++    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
++    --shadow-md: 0 10px 30px -12px rgba(0, 0, 0, 0.55);
++
++    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
++    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, "Liberation Mono", monospace;
++  }
++
++  * { box-sizing: border-box; }
++  [hidden] { display: none !important; }
++  html, body { height: 100%; }
++  body {
++    margin: 0;
++    background: var(--bg);
++    color: var(--text);
++    font-family: var(--font-sans);
++    -webkit-font-smoothing: antialiased;
++  }
++  ::selection { background: var(--accent-soft); color: var(--text); }
++  ::-webkit-scrollbar { width: 10px; height: 10px; }
++  ::-webkit-scrollbar-track { background: transparent; }
++  ::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 999px; border: 2px solid var(--bg); }
++  * { scrollbar-color: var(--surface-3) transparent; scrollbar-width: thin; }
++
++  a { color: var(--accent-text); }
++  code {
++    font-family: var(--font-mono);
++    font-size: 0.92em;
++    background: var(--surface-3);
++    color: #ffb27a;
++    padding: 1px 5px;
++    border-radius: 4px;
++  }
++
++  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
++
++  .icon { width: 16px; height: 16px; flex: none; display: block; }
++
++  /* --- topbar --- */
++  .topbar {
++    padding: 10px 20px;
++    background: var(--surface);
++    border-bottom: 1px solid var(--border);
++    display: flex;
++    align-items: center;
++    gap: 16px;
++    flex-wrap: wrap;
++    min-height: 56px;
++  }
++  .topbar-brand { display: flex; align-items: center; gap: 10px; }
++  .brand-mark {
++    display: flex; align-items: center; justify-content: center;
++    width: 32px; height: 32px; border-radius: var(--radius-sm);
++    background: var(--accent-soft); color: var(--accent-text);
++    border: 1px solid var(--accent-border);
++    flex: none;
++  }
++  .brand-mark .icon { width: 18px; height: 18px; }
++  .brand-title { font-size: 14px; font-weight: 700; line-height: 1.2; }
++  .brand-sub { font-size: 11.5px; color: var(--text-faint); line-height: 1.2; }
++  .topbar-nav { display: flex; align-items: center; gap: 4px; }
++  .nav-link {
++    display: inline-flex; align-items: center; gap: 6px;
++    font-size: 12.5px; font-weight: 600; text-decoration: none;
++    color: var(--text-dim); padding: 6px 10px; border-radius: var(--radius-sm);
++    transition: background-color 0.15s ease, color 0.15s ease;
++  }
++  .nav-link:hover { background: var(--surface-2); color: var(--text); }
++  .topbar-status { margin-left: auto; display: flex; align-items: center; }
++
++  /* --- status chips --- */
++  .status-badge { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
++  .chip {
++    display: inline-flex; align-items: center; gap: 4px;
++    padding: 3px 10px; border-radius: var(--radius-pill);
++    font-size: 11.5px; font-weight: 600; letter-spacing: 0.01em;
++    background: var(--surface-2); color: var(--text-dim);
++    border: 1px solid var(--border); white-space: nowrap;
++  }
++  .chip-accent { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-border); }
++  .chip-success { background: var(--success-soft); color: var(--success-text); border-color: var(--success-border); }
++  .chip-warn { background: var(--warn-soft); color: var(--warn-text); border-color: var(--warn-border); }
++
++  /* --- buttons --- */
++  .btn {
++    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
++    font-family: inherit; font-size: 13px; font-weight: 600;
++    padding: 8px 14px; border-radius: var(--radius-sm);
++    border: 1px solid transparent; cursor: pointer;
++    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.08s ease, opacity 0.15s ease;
++    white-space: nowrap;
++  }
++  .btn:active { transform: translateY(1px); }
++  .btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
++  .btn-primary { background: var(--accent-solid); color: #fff; }
++  .btn-primary:hover { background: var(--accent-solid-hover); }
++  .btn-ghost { background: var(--surface-2); color: var(--text); border-color: var(--border); }
++  .btn-ghost:hover { background: var(--surface-3); border-color: var(--border-soft); }
++  .btn-icon { padding: 8px; width: 36px; height: 36px; }
++
++  /* --- inputs --- */
++  .text-input, select {
++    font-family: inherit; font-size: 13.5px; color: var(--text);
++    background: var(--surface-2); border: 1px solid var(--border);
++    border-radius: var(--radius-sm); padding: 8px 12px;
++  }
++  .text-input::placeholder { color: var(--text-faint); }
++  select { padding-right: 28px; appearance: none; cursor: pointer;
++    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239d9da8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
++    background-repeat: no-repeat; background-position: right 8px center; background-size: 14px;
++  }
++
++  /* --- surfaces --- */
++  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; }
++  .panel h2 {
++    font-size: 12px; margin: 0 0 12px; color: var(--text-faint);
++    text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;
++  }
++
++  /* --- notices --- */
++  .notice {
++    display: none; margin: 10px 20px 0; padding: 10px 14px;
++    border-radius: var(--radius-md); border: 1px solid;
++    font-size: 12.5px; line-height: 1.55; align-items: flex-start; gap: 10px;
++  }
++  .notice-icon { flex: none; margin-top: 1px; color: inherit; }
++  .notice-warn { background: var(--warn-soft); border-color: var(--warn-border); color: var(--warn-text); }
++  .notice-success { background: var(--success-soft); border-color: var(--success-border); color: var(--success-text); }
++  .notice strong { color: inherit; }
++
++  .hint { font-size: 12px; color: var(--text-faint); line-height: 1.6; }
++  .empty { color: var(--text-faint); font-size: 13px; padding: 12px 0; }
++
++  @media (prefers-reduced-motion: no-preference) {
++    @keyframes msg-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
++  }
++`;
+diff --git a/src/webapp/app.ts b/src/webapp/app.ts
+index 8412d50..44bf25d 100644
+--- a/src/webapp/app.ts
++++ b/src/webapp/app.ts
+@@ -26,6 +26,20 @@ import { createR2BillStorage, type BillStorage } from "../storage/bills";
+ import type { InboundEvent } from "../types";
+ import { route, type RouteDeps } from "../webhook/router";
+ import { getSharedMemoryStack, resetSharedMemoryStack } from "../dev/memory";
++import {
++  iconAlertTriangle,
++  iconBarChart,
++  iconCamera,
++  iconCheckCircle,
++  iconImage,
++  iconPencil,
++  iconReceipt,
++  iconRefresh,
++  iconSearch,
++  iconUndo,
++  iconXCircle,
++} from "../dev/icons";
++import { BASE_STYLES } from "../dev/theme";
+ 
+ /** Per-device bot messages (the UI shows the latest as a banner/toast). */
+ const replies = new Map<string, string[]>();
+@@ -293,95 +307,136 @@ const WEB_APP_PAGE = `<!doctype html>
+ <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+ <title>BillSnap</title>
+ <style>
+-  :root { color-scheme: dark; }
+-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+-  html, body { margin: 0; height: 100%; }
+-  body { background: #0b141a; color: #e9edef; font-family: -apple-system, Segoe UI, Roboto, sans-serif; display: flex; flex-direction: column; }
+-  header { padding: calc(12px + env(safe-area-inset-top)) 16px 12px; background: #1f2c34; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+-  header h1 { font-size: 18px; margin: 0; }
+-  header a { color: #00a884; font-size: 13px; text-decoration: none; }
+-  header a:hover { text-decoration: underline; }
+-  header .toggle { background: none; border: 1px solid #2a3942; color: #00a884; font-size: 12px; padding: 3px 8px; border-radius: 12px; cursor: pointer; font-family: inherit; }
+-  header .toggle.off { color: #f15c6d; border-color: #f15c6d; }
+-  main { flex: 1; overflow-y: auto; padding: 16px 16px calc(120px + env(safe-area-inset-bottom)); max-width: 560px; width: 100%; margin: 0 auto; }
+-  #hero { text-align: center; padding: 28px 0 12px; }
+-  #hero .big { font-size: 17px; color: #e9edef; margin-bottom: 6px; }
+-  #hero .sub { font-size: 13px; color: #8696a0; margin-bottom: 20px; }
+-  .btn { display: block; width: 100%; border: none; border-radius: 14px; padding: 16px; font-size: 17px; font-weight: 700; cursor: pointer; margin: 8px 0; }
+-  .btn.primary { background: #00a884; color: #0b141a; }
+-  .btn.ghost { background: #2a3942; color: #e9edef; }
+-  .btn.danger { background: #3b1d1d; color: #f87171; }
+-  .btn:disabled { opacity: .5; }
+-  #preview { width: 100%; max-height: 300px; object-fit: contain; border-radius: 14px; background: #1f2c34; margin: 12px 0; display: none; }
+-  #status { text-align: center; font-size: 14px; color: #7ee2a8; margin: 12px 0; display: none; }
+-  #readback { display: none; background: #1f2c34; border: 1px solid #2a3942; border-radius: 14px; padding: 12px 14px; margin: 12px 0; font-size: 13px; }
+-  #readback .cap { color: #00a884; font-weight: 700; margin-bottom: 6px; }
+-  #readback .raw { color: #8696a0; white-space: pre-wrap; margin-top: 8px; font-size: 12px; border-top: 1px solid #2a3942; padding-top: 8px; }
+-  #reply { display: none; background: #123b2c; border: 1px solid #00a884; color: #e9edef; border-radius: 14px; padding: 12px 14px; margin: 12px 0; font-size: 14px; white-space: pre-wrap; }
+-  #reply.error { background: #3b1d1d; border-color: #f87171; }
+-  .card { background: #1f2c34; border-radius: 16px; padding: 16px; margin: 12px 0; }
+-  .card h2 { font-size: 14px; color: #8696a0; text-transform: uppercase; letter-spacing: .04em; margin: 0 0 10px; }
+-  .row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #2a3942; font-size: 15px; }
++${BASE_STYLES}
++  * { -webkit-tap-highlight-color: transparent; }
++  body { height: 100dvh; display: flex; flex-direction: column; }
++  .topbar { padding-top: calc(10px + env(safe-area-inset-top)); }
++  .autosave-toggle {
++    display: inline-flex; align-items: center; gap: 6px;
++    background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
++    font-size: 12px; font-weight: 600; padding: 5px 10px 5px 8px; border-radius: var(--radius-pill);
++    cursor: pointer; font-family: inherit; transition: background-color .15s ease, border-color .15s ease, color .15s ease;
++  }
++  .autosave-toggle .icon { width: 14px; height: 14px; }
++  .autosave-toggle.on { background: var(--success-soft); border-color: var(--success-border); color: var(--success-text); }
++  .autosave-toggle.off { background: var(--surface-2); border-color: var(--border); color: var(--text-faint); }
++  main { flex: 1; overflow-y: auto; padding: 16px 16px calc(132px + env(safe-area-inset-bottom)); max-width: 560px; width: 100%; margin: 0 auto; }
++  #hero { text-align: center; padding: 20px 0 8px; }
++  .hero-icon {
++    display: inline-flex; align-items: center; justify-content: center;
++    width: 52px; height: 52px; border-radius: var(--radius-lg);
++    background: var(--accent-soft); color: var(--accent-text); border: 1px solid var(--accent-border);
++    margin-bottom: 14px;
++  }
++  .hero-icon .icon { width: 26px; height: 26px; }
++  #hero .big { font-size: 19px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
++  #hero .sub { font-size: 13.5px; color: var(--text-faint); line-height: 1.5; margin-bottom: 20px; max-width: 44ch; margin-left: auto; margin-right: auto; }
++  .btn-lg {
++    display: flex; align-items: center; justify-content: center; gap: 9px;
++    width: 100%; border: 1px solid transparent; border-radius: var(--radius-md);
++    padding: 15px 16px; font-size: 16px; font-weight: 700; font-family: inherit;
++    cursor: pointer; margin: 7px 0;
++    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.08s ease, opacity 0.15s ease;
++  }
++  .btn-lg:active { transform: translateY(1px); }
++  .btn-lg:disabled { opacity: .5; cursor: not-allowed; }
++  .btn-lg .icon { width: 19px; height: 19px; }
++  .btn-lg.primary { background: var(--accent-solid); color: #fff; }
++  .btn-lg.primary:hover { background: var(--accent-solid-hover); }
++  .btn-lg.ghost { background: var(--surface-2); color: var(--text); border-color: var(--border); }
++  .btn-lg.ghost:hover { background: var(--surface-3); }
++  #preview { width: 100%; max-height: 280px; object-fit: contain; border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--border); margin: 12px 0; display: none; }
++  #status {
++    display: none; align-items: center; justify-content: center; gap: 8px;
++    text-align: center; font-size: 13.5px; color: var(--text-dim); margin: 12px 0;
++  }
++  #status .icon { width: 16px; height: 16px; }
++  @media (prefers-reduced-motion: no-preference) {
++    #status .icon { animation: spin 1s linear infinite; }
++    @keyframes spin { to { transform: rotate(360deg); } }
++  }
++  #reply { display: none; }
++  #readback { display: none; }
++  .readback-cap { display: flex; align-items: center; gap: 7px; color: var(--accent-text); font-weight: 700; margin-bottom: 8px; }
++  .readback-cap .icon { width: 15px; height: 15px; }
++  #readback .raw { color: var(--text-faint); white-space: pre-wrap; margin-top: 10px; font-size: 11.5px; border-top: 1px solid var(--border-soft); padding-top: 8px; font-family: var(--font-mono); }
++  .confidence-badge { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; margin-bottom: 12px; }
++  .confidence-badge .icon { width: 17px; height: 17px; flex: none; }
++  .confidence-badge.ok { color: var(--success-text); }
++  .confidence-badge.warn { color: var(--warn-text); }
++  .row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-soft); font-size: 15px; gap: 10px; }
+   .row:last-child { border-bottom: none; }
+-  .row .k { color: #8696a0; font-size: 13px; }
+-  .row .v { font-weight: 600; text-align: right; }
+-  .row .v.missing { color: #f0c36d; font-weight: 400; }
+-  .row .v.warn { color: #f0c36d; }
+-  .row .edit { background: #2a3942; color: #e9edef; border: none; border-radius: 8px; padding: 6px 12px; font-size: 13px; margin-left: 10px; cursor: pointer; }
+-  .row .amount { font-size: 22px; font-weight: 800; color: #00a884; }
++  .row .k { color: var(--text-faint); font-size: 13px; flex: none; }
++  .row .v { font-weight: 600; text-align: right; display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
++  .row .v.missing { color: var(--warn-text); font-weight: 400; font-size: 13px; }
++  .row .amount { font-size: 24px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
++  .edit-btn {
++    display: inline-flex; align-items: center; justify-content: center;
++    width: 32px; height: 32px; flex: none;
++    background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border);
++    border-radius: var(--radius-sm); cursor: pointer;
++  }
++  .edit-btn .icon { width: 14px; height: 14px; }
+   #editbox { display: none; margin: 12px 0; }
+-  #editbox input { width: 100%; background: #2a3942; color: #e9edef; border: none; border-radius: 12px; padding: 14px; font-size: 16px; margin-bottom: 8px; }
+-  #editbox input:focus { outline: 1px solid #00a884; }
+-  h3 { font-size: 13px; color: #8696a0; text-transform: uppercase; letter-spacing: .04em; margin: 20px 0 8px; }
++  #editbox input.text-input { width: 100%; padding: 14px; font-size: 16px; margin-bottom: 8px; }
++  h3 { font-size: 11.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .05em; font-weight: 700; margin: 22px 0 8px; }
+   #recent { margin: 0; padding: 0; list-style: none; }
+-  #recent li { display: flex; justify-content: space-between; align-items: center; padding: 10px 4px; border-bottom: 1px solid #2a3942; font-size: 14px; }
+-  #recent .amt { font-weight: 700; }
+-  #recent .who { color: #8696a0; font-size: 12px; }
+-  .empty { color: #8696a0; font-size: 13px; padding: 8px 0; }
+-  #actions { position: fixed; bottom: 0; left: 0; right: 0; background: #0b141a; border-top: 1px solid #2a3942; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); display: none; max-width: 560px; margin: 0 auto; }
+-  #actions .btn { margin: 4px 0; }
+-  code { color: #ffa657; }
+-  #debug { margin: 28px 0 0; }
+-  #debug summary { cursor: pointer; font-size: 12px; color: #8696a0; padding: 8px 0; list-style: none; }
++  #recent li { display: flex; justify-content: space-between; align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--border-soft); font-size: 14px; }
++  #recent li:last-child { border-bottom: none; }
++  #recent .amt { font-weight: 700; font-variant-numeric: tabular-nums; }
++  #recent .who { color: var(--text-faint); font-size: 11.5px; margin-top: 1px; }
++  #actions {
++    position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface);
++    border-top: 1px solid var(--border); padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
++    display: none; max-width: 560px; margin: 0 auto;
++  }
++  #actions .btn-lg { margin: 5px 0; }
++  #debug { margin: 26px 0 4px; }
++  #debug summary { cursor: pointer; font-size: 12px; color: var(--text-faint); padding: 8px 0; list-style: none; font-weight: 600; }
+   #debug summary::-webkit-details-marker { display: none; }
+   #debug summary::before { content: "▸ "; }
+   #debug[open] summary::before { content: "▾ "; }
+-  #debug[open] summary { color: #00a884; }
+-  #debug .btn { margin: 10px 0; }
+-  #badge { font-size: 11px; color: #8696a0; margin: 6px 0 2px; }
++  #debug[open] summary { color: var(--accent-text); }
++  #debug .btn-lg { margin: 10px 0; }
+ </style>
+ </head>
+ <body>
+ <script src="https://cdn.jsdelivr.net/npm/tesseract.js@6/dist/tesseract.min.js"></script>
+-  <header>
+-    <h1>BillSnap</h1>
+-    <a href="/dev/dashboard?device=" class="dash-link">📊 Dashboard</a>
+-    <button id="autosaveToggle" class="toggle" title="High-confidence AI reads auto-log with a 24h undo when on; every bill needs Confirm &amp; Save when off"></button>
++  <header class="topbar">
++    <div class="topbar-brand">
++      <span class="brand-mark">${iconCamera}</span>
++      <div class="brand-title">BillSnap</div>
++    </div>
++    <div class="topbar-status">
++      <a href="/dev/dashboard?device=" class="nav-link dash-link">${iconBarChart} Dashboard</a>
++      <button id="autosaveToggle" class="autosave-toggle" title="High-confidence AI reads auto-log with a 24h undo when on; every bill needs Confirm &amp; Save when off"></button>
++    </div>
+   </header>
+   <main>
+     <div id="hero">
+-      <div class="big">📸 Snap a bill</div>
++      <span class="hero-icon">${iconCamera}</span>
++      <div class="big">Snap a bill</div>
+       <div class="sub">Take a photo of any bill or invoice — I'll read the amount, date, vendor, and GST, and you confirm.</div>
+-      <button class="btn primary" id="camera">📷 Take photo</button>
+-      <button class="btn ghost" id="gallery">🖼 Choose from gallery</button>
++      <button class="btn-lg primary" id="camera">${iconCamera}<span>Take photo</span></button>
++      <button class="btn-lg ghost" id="gallery">${iconImage}<span>Choose from gallery</span></button>
+     </div>
+     <input type="file" id="file" accept="image/*" hidden />
+     <img id="preview" alt="bill preview" />
+-    <div id="status">🔍 Reading…</div>
+-    <div id="reply"></div>
++    <div id="status">${iconRefresh}<span>Reading…</span></div>
++    <div id="reply" class="notice"></div>
+     <div id="draft"></div>
+     <div id="editbox">
+-      <input id="editvalue" placeholder="Value…" />
+-      <button class="btn primary" id="editsave">Save</button>
+-      <button class="btn ghost" id="editcancel">Cancel</button>
++      <input id="editvalue" class="text-input" placeholder="Value…" />
++      <button class="btn-lg primary" id="editsave">Save</button>
++      <button class="btn-lg ghost" id="editcancel">Cancel</button>
+     </div>
+     <h3>Recent bills</h3>
+     <ul id="recent"></ul>
+     <details id="debug">
+       <summary>Debug info</summary>
+-      <div id="badge"></div>
+-      <button class="btn ghost" id="sample">🧾 Try a sample bill</button>
+-      <div id="readback"></div>
++      <div id="badge" class="status-badge"></div>
++      <button class="btn-lg ghost" id="sample">${iconReceipt}<span>Try a sample bill</span></button>
++      <div id="readback" class="panel"></div>
+     </details>
+   </main>
+   <div id="actions"></div>
+@@ -389,6 +444,12 @@ const WEB_APP_PAGE = `<!doctype html>
+   const $ = (id) => document.getElementById(id);
+   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+   const money = (n) => n === null ? "Not found" : "$" + n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
++  const ICON_CHECK = '${iconCheckCircle}';
++  const ICON_WARN = '${iconAlertTriangle}';
++  const ICON_CROSS = '${iconXCircle}';
++  const ICON_PENCIL = '${iconPencil}';
++  const ICON_UNDO = '${iconUndo}';
++  const ICON_SEARCH = '${iconSearch}';
+ 
+   // Device identity: a stable browser id acts as the userPhone the router keys on.
+   let device = localStorage.getItem("billsnap.device");
+@@ -422,18 +483,23 @@ const WEB_APP_PAGE = `<!doctype html>
+ 
+   $("autosaveToggle").onclick = () => act(autoSave ? "autosave off" : "autosave on");
+ 
++  function chip(text, variant) {
++    const cls = "chip" + (variant ? " chip-" + variant : "");
++    return '<span class="' + cls + '">' + esc(text) + "</span>";
++  }
++
+   function render(s) {
+     autoSave = s.autoSave;
+     const toggle = $("autosaveToggle");
+-    toggle.textContent = autoSave ? "🔐 Auto-save: ON" : "🔒 Auto-save: OFF";
+-    toggle.className = "toggle" + (autoSave ? "" : " off");
+-    $("badge").textContent = "persistence: " + s.persistence + " · extractor: " + s.extractor +
+-      (s.recent.length ? " · " + s.recent.length + " logged" : "");
++    toggle.innerHTML = (autoSave ? ICON_CHECK : ICON_CROSS) + "<span>Auto-save " + (autoSave ? "on" : "off") + "</span>";
++    toggle.className = "autosave-toggle " + (autoSave ? "on" : "off");
++    $("badge").innerHTML = chip(s.persistence) + chip(s.extractor) + (s.recent.length ? chip(s.recent.length + " logged", "accent") : "");
+     const reply = $("reply");
+     if (s.lastReply && s.draft === null) {
+-      reply.style.display = "block";
+-      reply.textContent = s.lastReply;
+-      reply.className = /undo|Undone|Skipped|Logged|Welcome/i.test(s.lastReply) ? "" : "error";
++      const ok = /undo|Undone|Skipped|Logged|Welcome/i.test(s.lastReply);
++      reply.style.display = "flex";
++      reply.className = "notice " + (ok ? "notice-success" : "notice-warn");
++      reply.innerHTML = '<span class="notice-icon">' + (ok ? ICON_CHECK : ICON_WARN) + "</span><span>" + esc(s.lastReply) + "</span>";
+     } else {
+       reply.style.display = "none";
+     }
+@@ -441,11 +507,11 @@ const WEB_APP_PAGE = `<!doctype html>
+     if (s.ocrRead) {
+       read.style.display = "block";
+       const raw = s.ocrRead.ocrText.split(/\\r?\\n/).map((l) => l.trim()).filter((l) => l !== "").join("\\n");
+-      read.innerHTML = '<div class="cap">🔎 OCR read' + (s.ocrRead.config ? " — " + esc(s.ocrRead.config) : "") + "</div>" +
++      read.innerHTML = '<div class="readback-cap">' + ICON_SEARCH + "<span>OCR read" + (s.ocrRead.config ? " — " + esc(s.ocrRead.config) : "") + "</span></div>" +
+         "Amount: <strong>" + (s.ocrRead.amount === null ? "not found" : "$" + s.ocrRead.amount.toFixed(2)) + "</strong>" +
+-        (s.ocrRead.amountLine ? ' <span style="color:#8696a0">(from line "' + esc(s.ocrRead.amountLine) + '")</span>' : "") + "<br/>" +
+-        "Date: " + (s.ocrRead.date ?? "not found") + "<br/>" +
+-        "Vendor: " + (s.ocrRead.vendor ?? "not found") +
++        (s.ocrRead.amountLine ? ' <span style="color:var(--text-faint)">(from line "' + esc(s.ocrRead.amountLine) + '")</span>' : "") + "<br/>" +
++        "Date: " + esc(s.ocrRead.date ?? "not found") + "<br/>" +
++        "Vendor: " + esc(s.ocrRead.vendor ?? "not found") +
+         '<div class="raw">' + esc(raw) + "</div>";
+     } else {
+       read.style.display = "none";
+@@ -456,7 +522,7 @@ const WEB_APP_PAGE = `<!doctype html>
+       recent.innerHTML = '<li class="empty">Nothing logged yet.</li>';
+     } else {
+       recent.innerHTML = s.recent.map((b) =>
+-        '<li><span>' + esc(b.vendor || "—") + '<div class="who">' + (b.category || "") + " · " + b.confirmedAt.slice(0, 10) + "</div></span>" +
++        '<li><span>' + esc(b.vendor || "—") + '<div class="who">' + esc(b.category || "") + " · " + b.confirmedAt.slice(0, 10) + "</div></span>" +
+         '<span class="amt">' + money(b.amount) + "</span></li>"
+       ).join("");
+     }
+@@ -483,26 +549,29 @@ const WEB_APP_PAGE = `<!doctype html>
+     editing = false;
+     $("editbox").style.display = "none";
+     const e = d.extraction || {};
+-    const flag = d.machineRead ? "⚠️ Machine-read, please verify" : d.gateLevel === "high" ? "✅ High confidence" : "⚠️ Check details";
++    const flagOk = !d.machineRead && d.gateLevel === "high";
++    const flagIcon = flagOk ? ICON_CHECK : ICON_WARN;
++    const flagText = d.machineRead ? "Machine-read, please verify" : flagOk ? "High confidence" : "Check details";
+     const missing = '<span class="v missing">Not found — edit to add</span>';
+-    const row = (k, v, warn, editAction) =>
+-      '<div class="row"><span class="k">' + k + '</span><span class="v' + (warn ? " warn" : "") + '">' + v +
+-      (editAction ? '<button class="edit" onclick="' + editAction + '">✏️</button>' : "") + "</span></div>";
++    const editBtn = (action) => '<button class="edit-btn" onclick="' + action + '">' + ICON_PENCIL + "</button>";
++    const row = (k, v, editAction) =>
++      '<div class="row"><span class="k">' + k + '</span><span class="v">' + v +
++      (editAction ? editBtn(editAction) : "") + "</span></div>";
+     const amountCell = e.amount === null
+       ? missing
+-      : '<span class="v amount">' + money(e.amount) + '</span><button class="edit" onclick="act(\\'2\\')">✏️</button>';
+-    wrap.innerHTML = '<div class="card"><h2>📄 ' + esc(flag) + "</h2>" +
++      : '<span class="v amount">' + money(e.amount) + "</span>" + editBtn("act('2')");
++    wrap.innerHTML = '<div class="panel"><div class="confidence-badge ' + (flagOk ? "ok" : "warn") + '">' + flagIcon + "<span>" + esc(flagText) + "</span></div>" +
+       '<div class="row"><span class="k">Amount</span><span>' + amountCell + "</span></div>" +
+-      row("Vendor", e.vendor === null ? "Not found — edit to add" : esc(e.vendor), false, "act('3')") +
+-      row("Date", e.date === null ? "Not found — edit to add" : esc(e.date), false, "act('5')") +
+-      row("ABN", e.abn === null ? "Not verified" : esc(e.abn), false, null) +
+-      row("GST", e.gst === null ? "—" : money(e.gst), false, null) +
++      row("Vendor", e.vendor === null ? "Not found — edit to add" : esc(e.vendor), "act('3')") +
++      row("Date", e.date === null ? "Not found — edit to add" : esc(e.date), "act('5')") +
++      row("ABN", e.abn === null ? "Not verified" : esc(e.abn), null) +
++      row("GST", e.gst === null ? "—" : money(e.gst), null) +
+       "</div>";
+     actions.style.display = "block";
+     actions.innerHTML =
+-      '<button class="btn primary" onclick="act(\\'1\\')">✅ Confirm & Save</button>' +
+-      '<button class="btn danger" onclick="act(\\'4\\')">🗑 Skip / Wrong bill</button>' +
+-      '<button class="btn ghost" onclick="act(\\'delete\\')">↩️ Undo last</button>';
++      '<button class="btn-lg primary" onclick="act(\\'1\\')">' + ICON_CHECK + "<span>Confirm &amp; Save</span></button>" +
++      '<button class="btn-lg ghost" onclick="act(\\'4\\')">' + ICON_CROSS + "<span>Skip / Wrong bill</span></button>" +
++      '<button class="btn-lg ghost" onclick="act(\\'delete\\')">' + ICON_UNDO + "<span>Undo last</span></button>";
+   }
+ 
+   async function act(text) {
+@@ -581,7 +650,7 @@ const WEB_APP_PAGE = `<!doctype html>
+       img.style.display = "block";
+     }
+     const cfg = OCR_CONFIGS[ocrIndex % OCR_CONFIGS.length];
+-    $("status").style.display = "block";
++    $("status").style.display = "flex";
+     let ocrText = "";
+     let prep = null;
+     try {
