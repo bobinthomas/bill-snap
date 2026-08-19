@@ -3,15 +3,14 @@
  * config.devDemo like the /dev/demo console). Defaults to the demo user; the
  * webapp passes ?device= so the mobile flow's bills show up here too. Reads
  * the SAME store the flow writes to, so bills confirmed in the chat or the
- * webapp show up, and `seedDemoBills` logs a few realistic bills through the
- * real extraction pipeline so the analytics have data to show without typing.
+ * webapp show up.
  */
 import type { AppConfig } from "../config";
 import type { CloudBindings } from "../bindings";
 import type { DraftRecord } from "../db/drafts";
 import { mergeKnownVendors } from "../extraction/regex";
 import { demoDeps, DEMO_PHONE } from "./demo";
-import { iconBarChart, iconCheckCircle, iconDownload, iconHome, iconMessageCircle, iconReceipt, iconRefresh, iconSparkles, iconTag } from "./icons";
+import { iconBarChart, iconCheckCircle, iconDownload, iconHome, iconMessageCircle, iconReceipt, iconRefresh, iconTag } from "./icons";
 import { BASE_STYLES } from "./theme";
 
 export interface CategoryStat {
@@ -78,45 +77,6 @@ export interface DashboardData {
   /** All bills in the filtered scope (export) — recent is the page's slice. */
   rows: LoggedBill[];
   recent: LoggedBill[];
-}
-
-/** Realistic fallback entries (regex path, §5.3) — the seed goes through the pipeline. */
-const SEED_TEXTS = [
-  "wages 500 rajesh",
-  "rent 2200 homebase",
-  "internet 100 telstra gst",
-  "electricity 340 origin gst",
-  "supplies 145 officeworks gst",
-  "materials 215 bunnings gst",
-];
-
-/**
- * Log a few realistic bills, one per day going back, through the real
- * extraction + persistence path (createDraft → setFlowState → confirm). Each
- * run uses a fresh timestamp in the idempotency key, so clicking seed twice
- * doubles the data rather than erroring — it's a demo affordance.
- */
-export async function seedDemoBills(config: AppConfig, bindings?: CloudBindings): Promise<void> {
-  const deps = demoDeps(config, undefined, bindings);
-  const stamp = Date.now();
-  for (let i = 0; i < SEED_TEXTS.length; i++) {
-    const text = SEED_TEXTS[i]!;
-    const outcome = await deps.extraction.run({ text });
-    const draft = await deps.drafts.createDraft({
-      userPhone: DEMO_PHONE,
-      waMessageId: `wamid.seed.${stamp}.${i}`,
-      imageUrls: [],
-      flowExpiresAt: new Date(Date.now() + 10 * 60_000),
-    });
-    if (!draft) continue; // idempotency guard — already seeded this message
-    await deps.drafts.setFlowState(draft.id, {
-      flowState: "awaiting_confirm",
-      extraction: outcome.extraction,
-      gateLevel: outcome.gate,
-      machineRead: outcome.machineRead,
-    });
-    await deps.drafts.confirm(draft.id, new Date(Date.now() - i * 86_400_000), { autoLogged: false });
-  }
 }
 
 const categoryOf = (b: DraftRecord) => b.extraction?.category_hint?.value ?? "misc";
@@ -401,7 +361,6 @@ ${BASE_STYLES}
     <div id="known" class="known-vendors"></div>
     <div class="toolbar">
       <div class="toolbar-actions">
-        <button id="seed" class="btn btn-ghost">${iconSparkles}<span>Seed sample bills</span></button>
         <button id="refresh" class="btn btn-ghost">${iconRefresh}<span>Refresh</span></button>
         <button id="export" class="btn btn-primary">${iconDownload}<span>Export CSV</span></button>
       </div>
@@ -418,7 +377,7 @@ ${BASE_STYLES}
     </div>
     <section class="panel" style="margin-top:12px;"><h2 id="days-title">Last 7 days</h2><div class="days-scroll"><div id="days"></div></div></section>
     <section class="panel" style="margin-top:12px;"><h2>Recent bills</h2><div id="recent"></div></section>
-    <p id="hint" class="hint">Bills confirmed in the <a href="/dev/demo">demo console</a> appear here automatically. <code>seed</code> logs a week of realistic bills through the real extraction pipeline. Persistence is in-memory until local D1 is configured (<code>npm run dev:full</code>).</p>
+    <p id="hint" class="hint">Bills confirmed in the <a href="/dev/demo">demo console</a> appear here automatically. Persistence is in-memory until local D1 is configured (<code>npm run dev:full</code>).</p>
   </main>
 <script>
   const $ = (id) => document.getElementById(id);
@@ -429,7 +388,7 @@ ${BASE_STYLES}
     return '<span class="' + cls + '">' + esc(text) + "</span>";
   }
   function bars(list, total) {
-    if (!list.length) return '<div class="empty">No bills yet — send a photo in the demo console or hit Seed.</div>';
+    if (!list.length) return '<div class="empty">No bills yet — send a photo in the demo console.</div>';
     return list.map((x) => {
       const pct = total > 0 ? Math.max(3, Math.round((x.amount / total) * 100)) : 0;
       return '<div class="bar-row"><span class="name" title="' + esc(x.category || x.vendor) + '">' + esc(x.category || x.vendor) + "</span>" +
@@ -469,8 +428,8 @@ ${BASE_STYLES}
       ? '<span class="known-label">Learned vendors</span>' + known.map((v) => chip(v, "accent")).join("")
       : "";
     $("hint").innerHTML = d.persistence === "d1"
-      ? 'Bills confirmed in the <a href="/dev/demo">demo console</a> are written to the local D1 store — they survive page reloads. <code>seed</code> logs a week of realistic bills through the real extraction pipeline.'
-      : 'Bills confirmed in the <a href="/dev/demo">demo console</a> appear here automatically. <code>seed</code> logs a week of realistic bills. Persistence is in-memory — start <code>npm run dev:full</code> (local D1 + R2) and demo entries will survive reloads.';
+      ? 'Bills confirmed in the <a href="/dev/demo">demo console</a> are written to the local D1 store — they survive page reloads.'
+      : 'Bills confirmed in the <a href="/dev/demo">demo console</a> appear here automatically. Persistence is in-memory — start <code>npm run dev:full</code> (local D1 + R2) and demo entries will survive reloads.';
     $("cards").innerHTML = [
       ['${iconReceipt}', "Bills logged", d.totals.count, ""],
       ['${iconBarChart}', "Total spend", money(d.totals.amount), ""],
@@ -515,7 +474,6 @@ ${BASE_STYLES}
     if (res.ok) { const d = await res.json(); render(d); populate(d); }
   }
   ["f-month", "f-category", "f-vendor"].forEach((id) => { $(id).onchange = refresh; });
-  $("seed").onclick = async () => { await fetch("/dev/dashboard/seed", { method: "POST" }); await refresh(); };
   $("refresh").onclick = refresh;
   $("export").onclick = () => {
     const q = currentParams().toString();

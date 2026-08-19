@@ -54,6 +54,24 @@ async function logBill(text: string, confirmedAt: Date): Promise<void> {
   await deps.drafts.confirm(draft!.id, confirmedAt, { autoLogged: false });
 }
 
+/** Six realistic bills, one per day going back — the fixture the removed
+ *  "seed" feature used to produce, kept here so the analytics/filter/export
+ *  tests still have deterministic data through the real pipeline. */
+const SAMPLE_TEXTS = [
+  "wages 500 rajesh",
+  "rent 2200 homebase",
+  "internet 100 telstra gst",
+  "electricity 340 origin gst",
+  "supplies 145 officeworks gst",
+  "materials 215 bunnings gst",
+];
+
+async function logSixSampleBills(): Promise<void> {
+  for (let i = 0; i < SAMPLE_TEXTS.length; i++) {
+    await logBill(SAMPLE_TEXTS[i]!, new Date(Date.now() - i * 86_400_000));
+  }
+}
+
 async function get(app: ReturnType<typeof createApp>, path: string) {
   return app.request(path, { headers: AUTH_HEADER }, ENV);
 }
@@ -95,7 +113,6 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain("BillSnap — dashboard");
-    expect(html).toContain("Seed sample bills");
     // Recent-bills table columns mirror the CSV export (F12 accountant share).
     expect(html).toContain(">Invoice</th>");
     expect(html).toContain(">ABN</th>");
@@ -111,21 +128,20 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
     expect(data.recent).toEqual([]);
   });
 
-  it("seed logs six realistic bills through the pipeline with clean analytics", async () => {
+  it("aggregates six logged bills through the pipeline into clean analytics", async () => {
     const app = createApp();
-    const seed = await app.request("/dev/dashboard/seed", { method: "POST", headers: AUTH_HEADER }, ENV);
-    expect(seed.status).toBe(200);
-    const data = (await seed.json()) as DashboardJson;
+    await logSixSampleBills();
+    const d = await data(app);
 
     // 500 + 2200 + 100 + 340 + 145 + 215 = 3500; GST 10 + 34 + 14.50 + 21.50 = 80.
-    expect(data.totals.count).toBe(6);
-    expect(data.totals.amount).toBe(3500);
-    expect(data.totals.gst).toBeCloseTo(80, 2);
-    expect(data.totals.autoLogged).toBe(0); // regex entries are machine-read, never auto-logged
-    expect(data.totals.manual).toBe(6);
+    expect(d.totals.count).toBe(6);
+    expect(d.totals.amount).toBe(3500);
+    expect(d.totals.gst).toBeCloseTo(80, 2);
+    expect(d.totals.autoLogged).toBe(0); // regex entries are machine-read, never auto-logged
+    expect(d.totals.manual).toBe(6);
 
     // Category breakdown, sorted by spend.
-    expect(data.categories).toEqual([
+    expect(d.categories).toEqual([
       { category: "rent", count: 1, amount: 2200 },
       { category: "wages", count: 1, amount: 500 },
       { category: "utilities", count: 2, amount: 440 },
@@ -133,7 +149,7 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
     ]);
 
     // GST markers stripped from the vendor names (regression: "telstra gst").
-    expect(data.vendors.map((v) => v.vendor)).toEqual([
+    expect(d.vendors.map((v) => v.vendor)).toEqual([
       "homebase",
       "rajesh",
       "origin",
@@ -141,21 +157,21 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
       "officeworks",
       "telstra",
     ]);
-    expect(data.vendors.every((v) => !v.vendor.includes("gst"))).toBe(true);
+    expect(d.vendors.every((v) => !v.vendor.includes("gst"))).toBe(true);
 
     // One bill per day going back → the 7-day chart has shape.
-    expect(data.days).toHaveLength(7);
-    expect(data.days.reduce((n, d) => n + d.count, 0)).toBe(6);
+    expect(d.days).toHaveLength(7);
+    expect(d.days.reduce((n, day) => n + day.count, 0)).toBe(6);
 
     // Newest confirmed first.
-    const times = data.recent.map((r) => new Date(r.confirmedAt).getTime());
+    const times = d.recent.map((r) => new Date(r.confirmedAt).getTime());
     expect([...times].sort((a, b) => b - a)).toEqual(times);
-    expect(data.recent[0]?.vendor).toBe("rajesh");
+    expect(d.recent[0]?.vendor).toBe("rajesh");
   });
 
   it("lists the months present and echoes the active filters", async () => {
     const app = createApp();
-    await app.request("/dev/dashboard/seed", { method: "POST", headers: AUTH_HEADER }, ENV);
+    await logSixSampleBills();
     const d = await data(app);
 
     const currentMonth = new Date().toISOString().slice(0, 7);
@@ -166,7 +182,7 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
 
   it("filters by month, category, and vendor (cascading)", async () => {
     const app = createApp();
-    await app.request("/dev/dashboard/seed", { method: "POST", headers: AUTH_HEADER }, ENV);
+    await logSixSampleBills();
     await logBill("wages 500 july-book", new Date("2026-07-15T00:00:00.000Z"));
 
     const all = await data(app);
@@ -203,7 +219,7 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
 
   it("exports the filtered bill list as CSV for the accountant share", async () => {
     const app = createApp();
-    await app.request("/dev/dashboard/seed", { method: "POST", headers: AUTH_HEADER }, ENV);
+    await logSixSampleBills();
     await logBill("wages 500 july-book", new Date("2026-07-15T00:00:00.000Z"));
 
     // Gated like the rest of the dev dashboard.
