@@ -88,15 +88,23 @@ export const PREMIUM_STYLES = `
 
   h1, h2, h3, .brand-title, .hero-title { font-family: var(--font-display); letter-spacing: -0.01em; }
 
-  /* --- floating island topbar --- */
+  /* --- floating island topbar ---
+     A full capsule radius (--radius-pill) only reads as a "pill" when the
+     bar is a single short line. This topbar's content (brand + nav links +
+     status chips) wraps onto 2-3 lines well before mobile width, and a
+     999px radius on a tall, multi-line box distorts into a warped blob
+     instead of a clean rounded bar — verified live, not a hypothetical.
+     --radius-2xl reads as a nicely rounded floating pill when short AND
+     stays a clean rounded card once content wraps. */
   .topbar {
     margin: 14px 14px 0; padding: 11px 20px;
     background: var(--surface-2);
     backdrop-filter: blur(22px) saturate(150%);
     -webkit-backdrop-filter: blur(22px) saturate(150%);
     border: 1px solid var(--border);
-    border-radius: var(--radius-pill);
+    border-radius: var(--radius-2xl);
     box-shadow: var(--shadow-md);
+    row-gap: 10px;
   }
   .brand-mark {
     background: linear-gradient(155deg, var(--accent-soft), rgba(255,255,255,.02));
