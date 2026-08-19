@@ -38,6 +38,7 @@ import {
   iconXCircle,
 } from "../dev/icons";
 import { BASE_STYLES } from "../dev/theme";
+import { PREMIUM_FONTS, PREMIUM_REVEAL_SCRIPT, PREMIUM_STYLES } from "../dev/theme-premium";
 
 /** Per-device bot messages (the UI shows the latest as a banner/toast). */
 const replies = new Map<string, string[]>();
@@ -350,11 +351,13 @@ const WEB_APP_PAGE = `<!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>BillSnap</title>
+${PREMIUM_FONTS}
 <style>
 ${BASE_STYLES}
+${PREMIUM_STYLES}
   * { -webkit-tap-highlight-color: transparent; }
   body { height: 100dvh; display: flex; flex-direction: column; }
-  .topbar { padding-top: calc(10px + env(safe-area-inset-top)); }
+  .topbar { margin-top: calc(14px + env(safe-area-inset-top)); }
   .autosave-toggle {
     display: inline-flex; align-items: center; gap: 6px;
     background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
@@ -438,11 +441,15 @@ ${BASE_STYLES}
   #recent .recent-actions { display: flex; align-items: center; gap: 8px; flex: none; }
   #recent .delete-btn { padding: 6px 9px; margin: 0; width: auto; font-size: 11.5px; font-weight: 600; border-radius: var(--radius-sm); }
   #actions {
-    position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface);
-    border-top: 1px solid var(--border); padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface-2);
+    backdrop-filter: blur(22px) saturate(150%); -webkit-backdrop-filter: blur(22px) saturate(150%);
+    border-top: 1px solid var(--border); border-radius: 22px 22px 0 0;
+    box-shadow: 0 -24px 60px -34px rgba(0,0,0,.7);
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
     display: none; max-width: 560px; margin: 0 auto;
   }
   #actions { display: none; gap: 8px; }
+  #hero .eyebrow { grid-column: 1 / -1; justify-self: center; margin-bottom: 12px; }
   #actions .btn-lg { flex: 1 1 0; min-width: 0; margin: 5px 0; padding-left: 8px; padding-right: 8px; font-size: 13px; }
   @media (max-width: 390px) { #actions { flex-wrap: wrap; } #actions .btn-lg { flex-basis: 100%; } }
 </style>
@@ -460,11 +467,12 @@ ${BASE_STYLES}
     </div>
   </header>
   <main>
-    <div id="hero">
+    <div id="hero" data-reveal>
+      <span class="eyebrow"><span class="dot"></span>AI-powered capture</span>
       <span class="hero-icon">${iconCamera}</span>
       <div class="big">Snap a bill</div>
       <div class="sub">Take a photo of any bill or invoice — I'll read the amount, date, vendor, and GST, and you confirm.</div>
-      <button class="btn-lg primary" id="camera">${iconCamera}<span>Take photo</span></button>
+      <button class="btn-lg primary" id="camera"><span class="icon-chip">${iconCamera}</span><span>Take photo</span></button>
       <button class="btn-lg ghost" id="gallery">${iconImage}<span>Gallery</span></button>
       <button class="btn-lg btn-manual" id="manual">${iconPencil}<span>Enter manually</span></button>
     </div>
@@ -479,8 +487,8 @@ ${BASE_STYLES}
       <button class="btn-lg primary" id="editsave">Save</button>
       <button class="btn-lg ghost" id="editcancel">Cancel</button>
     </div>
-    <h3>Recent bills</h3>
-    <ul id="recent"></ul>
+    <h3 data-reveal>Recent bills</h3>
+    <ul id="recent" data-reveal></ul>
     <div id="badge" hidden></div>
   </main>
   <div id="actions"></div>
@@ -615,16 +623,16 @@ ${BASE_STYLES}
     const amountCell = e.amount === null
       ? missing
       : '<span class="v amount">' + money(e.amount) + "</span>" + editBtn("act('2')");
-    wrap.innerHTML = '<div class="panel"><div class="confidence-badge ' + (flagOk ? "ok" : "warn") + '">' + flagIcon + "<span>" + esc(flagText) + "</span></div>" +
+    wrap.innerHTML = '<div class="panel"><div class="panel-inner"><div class="confidence-badge ' + (flagOk ? "ok" : "warn") + '">' + flagIcon + "<span>" + esc(flagText) + "</span></div>" +
       '<div class="row"><span class="k">Amount</span><span>' + amountCell + "</span></div>" +
       row("Vendor", e.vendor === null ? "Not found — edit to add" : esc(e.vendor), "act('3')") +
       row("Date", e.date === null ? "Not found — edit to add" : esc(e.date), "act('5')") +
       row("ABN", e.abn === null ? "Not verified" : esc(e.abn), null) +
       row("GST", e.gst === null ? "—" : money(e.gst), null) +
-      "</div>";
+      "</div></div>";
     actions.style.display = "flex";
     actions.innerHTML =
-      '<button class="btn-lg primary" onclick="act(\\'1\\')">' + ICON_CHECK + "<span>Confirm &amp; Save</span></button>" +
+      '<button class="btn-lg primary" onclick="act(\\'1\\')"><span class="icon-chip">' + ICON_CHECK + "</span><span>Confirm &amp; Save</span></button>" +
       '<button class="btn-lg ghost" onclick="act(\\'4\\')">' + ICON_CROSS + "<span>Skip / Wrong bill</span></button>" +
       '<button class="btn-lg ghost" onclick="act(\\'delete\\')">' + ICON_UNDO + "<span>Undo last</span></button>";
   }
@@ -756,6 +764,7 @@ ${BASE_STYLES}
   setInterval(refresh, 3000);
   setInterval(updateDeleteCountdowns, 60000);
 </script>
+<script>${PREMIUM_REVEAL_SCRIPT}</script>
 </body>
 </html>`;
 

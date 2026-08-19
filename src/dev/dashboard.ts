@@ -12,6 +12,7 @@ import { mergeKnownVendors } from "../extraction/regex";
 import { demoDeps, DEMO_PHONE } from "./demo";
 import { iconBarChart, iconCheckCircle, iconDownload, iconHome, iconMessageCircle, iconReceipt, iconRefresh, iconTag } from "./icons";
 import { BASE_STYLES } from "./theme";
+import { PREMIUM_FONTS, PREMIUM_REVEAL_SCRIPT, PREMIUM_STYLES } from "./theme-premium";
 
 export interface CategoryStat {
   category: string;
@@ -289,26 +290,44 @@ const DASHBOARD_PAGE = `<!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>BillSnap — dashboard</title>
+${PREMIUM_FONTS}
 <style>
 ${BASE_STYLES}
-  main { max-width: 1000px; margin: 0 auto; padding: 20px; }
+${PREMIUM_STYLES}
+  main { max-width: 1080px; margin: 0 auto; padding: 28px 20px 40px; }
+  .eyebrow { margin-bottom: 18px; }
   .known-vendors { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 14px; min-height: 24px; }
   .known-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); font-weight: 700; margin-right: 2px; }
   .toolbar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
   .toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .filters label { font-size: 12px; color: var(--text-faint); display: inline-flex; align-items: center; gap: 6px; }
-  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
-  .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+  /* --- KPI bento: "Total spend" is the featured tile, spanning two columns --- */
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .kpi-card {
+    background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius-xl);
+    padding: 6px; display: flex; flex-direction: column; box-shadow: var(--shadow-md);
+  }
+  .kpi-card .kpi-core {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: calc(var(--radius-xl) - 6px);
+    box-shadow: inset 0 1px 1px rgba(255,255,255,.07);
+    padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; flex: 1;
+  }
+  .kpi-card:nth-child(2) { grid-column: span 2; }
   .kpi-card .kpi-icon {
-    display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center; width: 30px; height: 30px;
     border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent-text);
+    border: 1px solid var(--accent-border); box-shadow: inset 0 1px 1px rgba(255,255,255,.15);
   }
   .kpi-card .kpi-icon .icon { width: 15px; height: 15px; }
-  .kpi-card .label { font-size: 11.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; }
-  .kpi-card .value { font-size: 23px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .kpi-card .label { font-size: 11.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+  .kpi-card .value { font-family: var(--font-display); font-size: 27px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .kpi-card:nth-child(2) .value { font-size: 34px; }
   .kpi-card .sub { font-size: 11.5px; color: var(--text-faint); }
-  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
+  @media (max-width: 900px) { .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kpi-card:nth-child(2) { grid-column: span 2; } }
+  @media (max-width: 480px) { .kpi-grid { grid-template-columns: 1fr; } .kpi-card:nth-child(2) { grid-column: span 1; } .kpi-card:nth-child(2) .value { font-size: 27px; } }
+  /* --- bento split: category takes more room than the vendor list --- */
+  .cols { display: grid; grid-template-columns: 3fr 2fr; gap: 14px; margin-top: 4px; }
   @media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
   .bar-row { display: grid; grid-template-columns: 110px 1fr 76px; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 12.5px; }
   .bar-row .name { text-align: right; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -358,11 +377,12 @@ ${BASE_STYLES}
     <div class="topbar-status"><span id="badge" class="status-badge"></span></div>
   </header>
   <main>
+    <span class="eyebrow" data-reveal><span class="dot"></span>Live analytics</span>
     <div id="known" class="known-vendors"></div>
-    <div class="toolbar">
+    <div class="toolbar" data-reveal>
       <div class="toolbar-actions">
         <button id="refresh" class="btn btn-ghost">${iconRefresh}<span>Refresh</span></button>
-        <button id="export" class="btn btn-primary">${iconDownload}<span>Export CSV</span></button>
+        <button id="export" class="btn btn-primary"><span class="icon-chip">${iconDownload}</span><span>Export CSV</span></button>
       </div>
       <div id="filters" class="filters">
         <label>Month <select id="f-month"></select></label>
@@ -370,13 +390,13 @@ ${BASE_STYLES}
         <label>Vendor <select id="f-vendor"></select></label>
       </div>
     </div>
-    <div id="cards" class="kpi-grid"></div>
-    <div class="cols">
-      <section class="panel"><h2>By category</h2><div id="cats"></div></section>
-      <section class="panel"><h2>Top vendors</h2><div id="vendors"></div></section>
+    <div id="cards" class="kpi-grid" data-reveal></div>
+    <div class="cols" data-reveal>
+      <section class="panel"><div class="panel-inner"><h2>By category</h2><div id="cats"></div></div></section>
+      <section class="panel"><div class="panel-inner"><h2>Top vendors</h2><div id="vendors"></div></div></section>
     </div>
-    <section class="panel" style="margin-top:12px;"><h2 id="days-title">Last 7 days</h2><div class="days-scroll"><div id="days"></div></div></section>
-    <section class="panel" style="margin-top:12px;"><h2>Recent bills</h2><div id="recent"></div></section>
+    <section class="panel" style="margin-top:14px;" data-reveal><div class="panel-inner"><h2 id="days-title">Last 7 days</h2><div class="days-scroll"><div id="days"></div></div></div></section>
+    <section class="panel" style="margin-top:14px;" data-reveal><div class="panel-inner"><h2>Recent bills</h2><div id="recent"></div></div></section>
     <p id="hint" class="hint">Bills confirmed in the <a href="/dev/demo">demo console</a> appear here automatically. Persistence is in-memory until local D1 is configured (<code>npm run dev:full</code>).</p>
   </main>
 <script>
@@ -435,7 +455,7 @@ ${BASE_STYLES}
       ['${iconBarChart}', "Total spend", money(d.totals.amount), ""],
       ['${iconTag}', "Total GST", money(d.totals.gst), ""],
       ['${iconCheckCircle}', "Auto-logged", d.totals.autoLogged + " of " + d.totals.count, d.totals.autoLogged ? "24 h undo window" : ""],
-    ].map((c) => '<div class="kpi-card"><span class="kpi-icon">' + c[0] + '</span><div><div class="label">' + c[1] + '</div><div class="value">' + c[2] + '</div><div class="sub">' + c[3] + "</div></div></div>").join("");
+    ].map((c) => '<div class="kpi-card"><div class="kpi-core"><span class="kpi-icon">' + c[0] + '</span><div><div class="label">' + c[1] + '</div><div class="value">' + c[2] + '</div><div class="sub">' + c[3] + "</div></div></div></div>").join("");
     $("cats").innerHTML = bars(d.categories, d.totals.amount);
     $("vendors").innerHTML = bars(d.vendors, d.totals.amount);
     $("days-title").textContent = d.filters.month
@@ -486,6 +506,7 @@ ${BASE_STYLES}
   refresh();
   setInterval(refresh, 2000);
 </script>
+<script>${PREMIUM_REVEAL_SCRIPT}</script>
 </body>
 </html>`;
 
