@@ -71,8 +71,7 @@ export function createApp(deps: AppDeps = {}) {
   const app = new Hono<{ Bindings: Env }>();
 
   app.get("/", (c) => {
-    const config = loadConfig(c.env);
-    return c.html(renderLanding(c.env, config, aiBinding(c.env)));
+    return c.redirect("/app");
   });
 
   // DEV-only browser demo (simulated WhatsApp) — gated on config.devDemo.
@@ -294,56 +293,6 @@ function buildDeps(
     ok: true,
     value: { users, businesses, drafts, extraction, send: messenger, storage, config },
   };
-}
-
-/** Minimal landing page so the dev server preview shows real content at `/`. */
-function renderLanding(env: Env, config: ReturnType<typeof loadConfig>, ai?: WorkersAi): string {
-  const pill = (name: string, configured: boolean) => `
-    <span class="pill ${configured ? "ok" : "missing"}">
-      <span class="dot"></span>${name} ${configured ? "configured" : "not configured"}
-    </span>`;
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>BillSnap — local dev server</title>
-<style>
-  :root { color-scheme: dark; }
-  body { margin: 0; background: #0d1117; color: #e6edf3; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .wrap { max-width: 640px; margin: 0 auto; padding: 56px 24px; }
-  h1 { font-size: 22px; letter-spacing: -0.02em; margin: 0 0 4px; }
-  .tag { color: #8b949e; font-size: 13px; margin-bottom: 28px; }
-  .pill { display: inline-flex; align-items: center; gap: 8px; border: 1px solid #30363d; border-radius: 999px;
-          padding: 4px 12px; font-size: 12px; margin: 0 8px 8px 0; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; }
-  .pill.ok .dot { background: #3fb950; box-shadow: 0 0 6px #3fb950; }
-  .pill.missing .dot { background: #f85149; box-shadow: 0 0 6px #f85149; }
-  ul { list-style: none; padding: 0; margin: 28px 0 0; border-top: 1px solid #21262d; }
-  li { padding: 10px 0; border-bottom: 1px solid #21262d; }
-  a { color: #58a6ff; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  code { color: #ffa657; }
-</style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>BillSnap</h1>
-    <div class="tag">WhatsApp bill logger — local dev server</div>
-    ${pill("WhatsApp webhook", Boolean(config.whatsapp.verifyToken && config.whatsapp.appSecret))}
-    ${pill("Workers AI", Boolean(ai))}
-    ${pill("D1", Boolean((env as unknown as { DB?: D1Database }).DB))}${pill("R2", Boolean((env as unknown as { BILLS?: R2Bucket }).BILLS))}
-    <ul>
-      <li><a href="/app">/app</a> — <strong>the webapp (mobile-first)</strong>: upload a photo, confirm, done — the primary flow</li>
-      <li><a href="/dev/demo">/dev/demo</a> — <strong>the browser demo</strong>: drive the bot flow with simulated WhatsApp messages${config.devDemo ? "" : " (enable: set DEV_DEMO=true in .dev.vars)"}</li>
-      <li><a href="/dev/dashboard">/dev/dashboard</a> — <strong>the analytics dashboard</strong>: logged bills, spend, GST, categories, vendors${config.devDemo ? "" : " (enable: set DEV_DEMO=true in .dev.vars)"}</li>
-      <li><a href="/health">/health</a> — <code>${config.whatsapp.verifyToken ? "live" : "live (secrets missing)"}</code></li>
-      <li><a href="/webhook?hub.mode=subscribe&hub.verify_token=dev-verify-token&hub.challenge=123456">/webhook handshake</a> — echoes the challenge when the verify token matches</li>
-      <li><a href="https://github.com" target="_blank" rel="noreferrer">PRD &amp; scaffolding plan</a> — in the repo root</li>
-    </ul>
-  </div>
-</body>
-</html>`;
 }
 
 // Production entry: fetch + the scheduled nudge/expiry sweep (cron, §5.6/§6.2).
