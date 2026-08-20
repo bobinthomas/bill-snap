@@ -400,8 +400,13 @@ ${PREMIUM_STYLES}
     text-align: center; font-size: 13.5px; color: var(--text-dim); margin: 12px 0;
   }
   #status .icon { width: 16px; height: 16px; }
+  .processing-note {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    text-align: center; font-size: 13.5px; color: var(--text-dim); padding: 40px 0;
+  }
+  .processing-note .icon { width: 16px; height: 16px; }
   @media (prefers-reduced-motion: no-preference) {
-    #status .icon { animation: spin 1s linear infinite; }
+    #status .icon, .processing-note .icon { animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
   }
   #reply { display: none; }
@@ -523,12 +528,13 @@ ${PREMIUM_STYLES}
 <script>
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const money = (n) => n === null ? "Not found" : "$" + n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const money = (n) => n == null ? "Not found" : "$" + n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const ICON_CHECK = '${iconCheckCircle}';
   const ICON_WARN = '${iconAlertTriangle}';
   const ICON_CROSS = '${iconXCircle}';
   const ICON_UNDO = '${iconUndo}';
   const ICON_CHEV = '${iconChevronRight}';
+  const ICON_REFRESH = '${iconRefresh}';
 
   // Device identity: a stable browser id acts as the userPhone the router keys on.
   let device = localStorage.getItem("billsnap.device");
@@ -644,7 +650,14 @@ ${PREMIUM_STYLES}
     }
     editing = false;
     $("editbox").style.display = "none";
-    const e = d.extraction || {};
+    if (!d.extraction) {
+      // Draft exists (flowState "processing") but extraction hasn't landed yet —
+      // a real window the 3s poll can catch while the AI call is in flight.
+      wrap.innerHTML = '<div class="processing-note">' + ICON_REFRESH + "<span>Reading your bill…</span></div>";
+      actions.style.display = "none";
+      return;
+    }
+    const e = d.extraction;
     const flagOk = !d.machineRead && d.gateLevel === "high";
     const flagIcon = flagOk ? ICON_CHECK : ICON_WARN;
     const flagText = d.machineRead ? "Machine-read, please verify" : flagOk ? "High confidence" : "Check details";
