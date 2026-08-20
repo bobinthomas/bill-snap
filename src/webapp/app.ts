@@ -31,6 +31,7 @@ import {
   iconBarChart,
   iconCamera,
   iconCheckCircle,
+  iconChevronRight,
   iconImage,
   iconPencil,
   iconRefresh,
@@ -367,25 +368,18 @@ ${PREMIUM_STYLES}
   .autosave-toggle .icon { width: 14px; height: 14px; }
   .autosave-toggle.on { background: var(--success-soft); border-color: var(--success-border); color: var(--success-text); }
   .autosave-toggle.off { background: var(--surface-2); border-color: var(--border); color: var(--text-faint); }
-  main { flex: 1; overflow-y: auto; padding: 16px 16px calc(132px + env(safe-area-inset-bottom)); max-width: 560px; width: 100%; margin: 0 auto; }
-  #hero { text-align: center; padding: 20px 0 8px; }
+  main { flex: 1; overflow-y: auto; padding: 14px 16px calc(150px + env(safe-area-inset-bottom)); max-width: 560px; width: 100%; margin: 0 auto; }
+  #hero { text-align: center; padding: 18px 0 4px; }
+  #hero .eyebrow { margin-bottom: 10px; }
   .hero-icon {
     display: inline-flex; align-items: center; justify-content: center;
-    width: 52px; height: 52px; border-radius: var(--radius-lg);
+    width: 48px; height: 48px; border-radius: var(--radius-lg);
     background: var(--accent-soft); color: var(--accent-text); border: 1px solid var(--accent-border);
-    margin-bottom: 14px;
+    margin-bottom: 12px;
   }
-  .hero-icon .icon { width: 26px; height: 26px; }
-  #hero .big { font-size: 19px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
-  #hero .sub { font-size: 13.5px; color: var(--text-faint); line-height: 1.5; margin-bottom: 20px; max-width: 44ch; margin-left: auto; margin-right: auto; }
-  #hero { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 8px; }
-  #hero .hero-icon, #hero .big, #hero .sub { grid-column: 1 / -1; }
-  #hero .btn-lg { width: 100%; margin: 7px 0; padding: 13px 8px; font-size: 13px; }
-  #hero .btn-manual {
-    grid-column: 1 / -1; background: transparent; border-color: transparent;
-    color: var(--text-faint); font-weight: 600; margin: 2px 0 0; padding: 10px 8px;
-  }
-  #hero .btn-manual:hover { background: var(--surface-2); color: var(--text-dim); }
+  .hero-icon .icon { width: 24px; height: 24px; }
+  #hero .big { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+  #hero .sub { font-size: 13px; color: var(--text-faint); line-height: 1.5; max-width: 34ch; margin: 0 auto; }
   .btn-lg {
     display: flex; align-items: center; justify-content: center; gap: 9px;
     width: 100%; border: 1px solid transparent; border-radius: var(--radius-md);
@@ -400,7 +394,7 @@ ${PREMIUM_STYLES}
   .btn-lg.primary:hover { background: var(--accent-solid-hover); }
   .btn-lg.ghost { background: var(--surface-2); color: var(--text); border-color: var(--border); }
   .btn-lg.ghost:hover { background: var(--surface-3); }
-  #preview { width: 100%; max-height: 280px; object-fit: contain; border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--border); margin: 12px 0; display: none; }
+  #preview { width: 100%; max-height: 240px; object-fit: contain; border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--border); margin: 12px 0; display: none; }
   #status {
     display: none; align-items: center; justify-content: center; gap: 8px;
     text-align: center; font-size: 13.5px; color: var(--text-dim); margin: 12px 0;
@@ -415,19 +409,25 @@ ${PREMIUM_STYLES}
   .confidence-badge .icon { width: 17px; height: 17px; flex: none; }
   .confidence-badge.ok { color: var(--success-text); }
   .confidence-badge.warn { color: var(--warn-text); }
-  .row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border-soft); font-size: 15px; gap: 10px; }
-  .row:last-child { border-bottom: none; }
-  .row .k { color: var(--text-faint); font-size: 13px; flex: none; }
-  .row .v { font-weight: 600; text-align: right; display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
-  .row .v.missing { color: var(--warn-text); font-weight: 400; font-size: 13px; }
-  .row .amount { font-size: 24px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
-  .edit-btn {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 32px; height: 32px; flex: none;
-    background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); cursor: pointer;
+
+  /* --- confirm rows: the whole row is the tap target (56px+ min), no
+     precision-aimed pencil icon — tapping an editable row opens that field --- */
+  .tap-row {
+    display: flex; align-items: center; justify-content: space-between; width: 100%;
+    min-height: 56px; padding: 13px 16px; margin-bottom: 8px; gap: 10px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md);
+    font-family: inherit; text-align: left; color: var(--text); cursor: pointer;
   }
-  .edit-btn .icon { width: 14px; height: 14px; }
+  .tap-row.editable { border-color: var(--accent-border); background: linear-gradient(155deg, var(--accent-soft), var(--surface-2)); }
+  .tap-row.static { cursor: default; opacity: .78; }
+  .tap-row .k { color: var(--text-faint); font-size: 12.5px; flex: none; }
+  .tap-row .v-wrap { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+  .tap-row .v { font-weight: 600; font-size: 15px; }
+  .tap-row .v.missing { color: var(--warn-text); font-weight: 400; font-size: 12.5px; }
+  .tap-row.amount-row { padding: 18px; }
+  .tap-row .v.amount { font-size: 25px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
+  .tap-row .chev { display: inline-flex; color: var(--text-faint); flex: none; }
+
   #editbox { display: none; margin: 12px 0; }
   #editbox .edit-label { font-size: 12px; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
   #editbox input.text-input { width: 100%; padding: 14px; font-size: 16px; margin-bottom: 8px; }
@@ -440,18 +440,44 @@ ${PREMIUM_STYLES}
   #recent .recent-main { min-width: 0; }
   #recent .recent-actions { display: flex; align-items: center; gap: 8px; flex: none; }
   #recent .delete-btn { padding: 6px 9px; margin: 0; width: auto; font-size: 11.5px; font-weight: 600; border-radius: var(--radius-sm); }
-  #actions {
-    position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface-2);
+
+  /* --- one docked bottom bar at a time: the capture shutter while idle, the
+     confirm actions once a draft is up for review — both sit in the thumb's
+     natural reach instead of scattered up the page (§ one-handed capture) --- */
+  .dock {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 5; background: var(--surface-2);
     backdrop-filter: blur(22px) saturate(150%); -webkit-backdrop-filter: blur(22px) saturate(150%);
-    border-top: 1px solid var(--border); border-radius: 22px 22px 0 0;
+    border-top: 1px solid var(--border); border-radius: 24px 24px 0 0;
     box-shadow: 0 -24px 60px -34px rgba(0,0,0,.7);
-    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
-    display: none; max-width: 560px; margin: 0 auto;
+    max-width: 560px; margin: 0 auto;
   }
-  #actions { display: none; gap: 8px; }
-  #hero .eyebrow { grid-column: 1 / -1; justify-self: center; margin-bottom: 12px; }
-  #actions .btn-lg { flex: 1 1 0; min-width: 0; margin: 5px 0; padding-left: 8px; padding-right: 8px; font-size: 13px; }
-  @media (max-width: 390px) { #actions { flex-wrap: wrap; } #actions .btn-lg { flex-basis: 100%; } }
+  #captureDock {
+    display: flex; align-items: center; justify-content: center; gap: 26px;
+    padding: 16px 24px calc(22px + env(safe-area-inset-bottom));
+  }
+  .side-btn {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    width: 58px; height: 58px; border-radius: 18px; flex: none;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
+    font-size: 10px; font-weight: 700; cursor: pointer;
+  }
+  .side-btn .icon { width: 20px; height: 20px; }
+  .shutter {
+    width: 76px; height: 76px; border-radius: 999px; flex: none; cursor: pointer;
+    background: var(--accent-solid);
+    display: flex; align-items: center; justify-content: center;
+    border: 4px solid rgba(255,255,255,.14);
+  }
+  .shutter:hover { background: var(--accent-solid-hover); }
+  .shutter .icon { width: 30px; height: 30px; color: #fff; }
+  #actions { display: none; padding: 16px 20px calc(14px + env(safe-area-inset-bottom)); }
+  #actions .big-cta { padding: 17px; font-size: 16px; margin: 0 0 10px; }
+  #actions .secondary-links { display: flex; align-items: center; justify-content: center; gap: 22px; }
+  #actions .text-link {
+    display: inline-flex; align-items: center; gap: 5px; background: none; border: none;
+    color: var(--text-faint); font-family: inherit; font-size: 12.5px; font-weight: 600; padding: 8px 4px; cursor: pointer;
+  }
+  #actions .text-link .icon { width: 14px; height: 14px; }
 </style>
 </head>
 <body>
@@ -471,10 +497,7 @@ ${PREMIUM_STYLES}
       <span class="eyebrow"><span class="dot"></span>AI-powered capture</span>
       <span class="hero-icon">${iconCamera}</span>
       <div class="big">Snap a bill</div>
-      <div class="sub">Take a photo of any bill or invoice — I'll read the amount, date, vendor, and GST, and you confirm.</div>
-      <button class="btn-lg primary" id="camera"><span class="icon-chip">${iconCamera}</span><span>Take photo</span></button>
-      <button class="btn-lg ghost" id="gallery">${iconImage}<span>Gallery</span></button>
-      <button class="btn-lg btn-manual" id="manual">${iconPencil}<span>Enter manually</span></button>
+      <div class="sub">Take a photo — I'll read the amount, date, vendor and GST, and you confirm.</div>
     </div>
     <input type="file" id="file" accept="image/*" hidden />
     <img id="preview" alt="bill preview" />
@@ -491,7 +514,12 @@ ${PREMIUM_STYLES}
     <ul id="recent" data-reveal></ul>
     <div id="badge" hidden></div>
   </main>
-  <div id="actions"></div>
+  <div id="captureDock" class="dock">
+    <button class="side-btn" id="gallery">${iconImage}<span>Gallery</span></button>
+    <button class="shutter" id="camera" aria-label="Take photo">${iconCamera}</button>
+    <button class="side-btn" id="manual">${iconPencil}<span>Manual</span></button>
+  </div>
+  <div id="actions" class="dock"></div>
 <script>
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -499,8 +527,8 @@ ${PREMIUM_STYLES}
   const ICON_CHECK = '${iconCheckCircle}';
   const ICON_WARN = '${iconAlertTriangle}';
   const ICON_CROSS = '${iconXCircle}';
-  const ICON_PENCIL = '${iconPencil}';
   const ICON_UNDO = '${iconUndo}';
+  const ICON_CHEV = '${iconChevronRight}';
 
   // Device identity: a stable browser id acts as the userPhone the router keys on.
   let device = localStorage.getItem("billsnap.device");
@@ -590,13 +618,18 @@ ${PREMIUM_STYLES}
   function renderDraft(d) {
     const wrap = $("draft");
     const actions = $("actions");
+    const captureDock = $("captureDock");
     if (!d) {
       wrap.innerHTML = "";
       actions.style.display = "none";
+      captureDock.style.display = "flex";
       editing = false;
       $("editbox").style.display = "none";
       return;
     }
+    // Only one docked bar shows at a time: the shutter while idle (above),
+    // the confirm actions once a draft is up for review (below) — never both.
+    captureDock.style.display = "none";
     if (d.flowState && d.flowState.startsWith("editing_")) {
       wrap.innerHTML = "";
       actions.style.display = "none";
@@ -616,25 +649,27 @@ ${PREMIUM_STYLES}
     const flagIcon = flagOk ? ICON_CHECK : ICON_WARN;
     const flagText = d.machineRead ? "Machine-read, please verify" : flagOk ? "High confidence" : "Check details";
     const missing = '<span class="v missing">Not found — edit to add</span>';
-    const editBtn = (action) => '<button class="edit-btn" onclick="' + action + '">' + ICON_PENCIL + "</button>";
-    const row = (k, v, editAction) =>
-      '<div class="row"><span class="k">' + k + '</span><span class="v">' + v +
-      (editAction ? editBtn(editAction) : "") + "</span></div>";
-    const amountCell = e.amount === null
-      ? missing
-      : '<span class="v amount">' + money(e.amount) + "</span>" + editBtn("act('2')");
-    wrap.innerHTML = '<div class="panel"><div class="panel-inner"><div class="confidence-badge ' + (flagOk ? "ok" : "warn") + '">' + flagIcon + "<span>" + esc(flagText) + "</span></div>" +
-      '<div class="row"><span class="k">Amount</span><span>' + amountCell + "</span></div>" +
-      row("Vendor", e.vendor === null ? "Not found — edit to add" : esc(e.vendor), "act('3')") +
-      row("Date", e.date === null ? "Not found — edit to add" : esc(e.date), "act('5')") +
-      row("ABN", e.abn === null ? "Not verified" : esc(e.abn), null) +
-      row("GST", e.gst === null ? "—" : money(e.gst), null) +
-      "</div></div>";
-    actions.style.display = "flex";
+    // Whole-row tap targets (56px+, no precision-aimed pencil icon) — tapping
+    // anywhere on an editable row opens that field.
+    const tapRow = (k, v, action, extraClass) =>
+      '<button class="tap-row editable' + (extraClass || "") + '" onclick="' + action + '"><span class="k">' + k +
+      '</span><span class="v-wrap">' + v + '<span class="chev">' + ICON_CHEV + "</span></span></button>";
+    const staticRow = (k, v) => '<div class="tap-row static"><span class="k">' + k + '</span>' + v + "</div>";
+    wrap.innerHTML = '<div class="confidence-badge ' + (flagOk ? "ok" : "warn") + '">' + flagIcon + "<span>" + esc(flagText) + "</span></div>" +
+      (e.amount === null
+        ? '<div class="tap-row static amount-row"><span class="k">Amount</span>' + missing + "</div>"
+        : tapRow("Amount", '<span class="v amount">' + money(e.amount) + "</span>", "act('2')", " amount-row")) +
+      tapRow("Vendor", e.vendor === null ? missing : '<span class="v">' + esc(e.vendor) + "</span>", "act('3')") +
+      tapRow("Date", e.date === null ? missing : '<span class="v">' + esc(e.date) + "</span>", "act('5')") +
+      staticRow("ABN", e.abn === null ? '<span class="v missing">Not verified</span>' : '<span class="v">' + esc(e.abn) + "</span>") +
+      staticRow("GST", e.gst === null ? '<span class="v">—</span>' : '<span class="v">' + money(e.gst) + "</span>");
+    actions.style.display = "block";
     actions.innerHTML =
-      '<button class="btn-lg primary" onclick="act(\\'1\\')"><span class="icon-chip">' + ICON_CHECK + "</span><span>Confirm &amp; Save</span></button>" +
-      '<button class="btn-lg ghost" onclick="act(\\'4\\')">' + ICON_CROSS + "<span>Skip / Wrong bill</span></button>" +
-      '<button class="btn-lg ghost" onclick="act(\\'delete\\')">' + ICON_UNDO + "<span>Undo last</span></button>";
+      '<button class="btn-lg primary big-cta" onclick="act(\\'1\\')"><span class="icon-chip">' + ICON_CHECK + "</span><span>Confirm &amp; Save</span></button>" +
+      '<div class="secondary-links">' +
+      '<button class="text-link" onclick="act(\\'4\\')">' + ICON_CROSS + "<span>Skip / wrong bill</span></button>" +
+      '<button class="text-link" onclick="act(\\'delete\\')">' + ICON_UNDO + "<span>Undo last</span></button>" +
+      "</div>";
   }
 
   async function act(text) {

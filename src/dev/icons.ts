@@ -73,3 +73,5 @@ export const iconPencil = svg(
 );
 
 export const iconUndo = svg(`<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 1 1 0 12H9"/>`);
+
+export const iconChevronRight = svg(`<path d="m9 6 6 6-6 6"/>`);
