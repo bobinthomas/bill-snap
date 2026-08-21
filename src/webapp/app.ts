@@ -28,6 +28,7 @@ import { route, type RouteDeps } from "../webhook/router";
 import { getSharedMemoryStack, resetSharedMemoryStack } from "../dev/memory";
 import {
   iconAlertTriangle,
+  iconBackspace,
   iconBarChart,
   iconCamera,
   iconCheckCircle,
@@ -35,11 +36,10 @@ import {
   iconImage,
   iconPencil,
   iconRefresh,
+  iconTrash,
   iconUndo,
   iconXCircle,
 } from "../dev/icons";
-import { BASE_STYLES } from "../dev/theme";
-import { PREMIUM_FONTS, PREMIUM_REVEAL_SCRIPT, PREMIUM_STYLES } from "../dev/theme-premium";
 
 /** Per-device bot messages (the UI shows the latest as a banner/toast). */
 const replies = new Map<string, string[]>();
@@ -341,10 +341,10 @@ export function resetWebApp(): void {
 }
 
 /**
- * The mobile-first webapp page. Self-contained (inline CSS/JS): a big
- * camera/upload button, in-browser OCR (tesseract.js), the read-back above the
- * confirm card, edit taps per field, Confirm & Save / Skip / Undo, and the
- * device's recent logged bills.
+ * The mobile-first webapp page. Self-contained (inline CSS/JS): an Apple
+ * Wallet/Pay/Cash-inspired dark UI — a big camera/upload button, in-browser
+ * OCR (tesseract.js), a grouped confirm card with a bottom-sheet amount
+ * keypad, Confirm & Save / Skip / Undo, and the device's recent logged bills.
  */
 const WEB_APP_PAGE = `<!doctype html>
 <html lang="en">
@@ -352,179 +352,271 @@ const WEB_APP_PAGE = `<!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>BillSnap</title>
-${PREMIUM_FONTS}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
-${BASE_STYLES}
-${PREMIUM_STYLES}
-  * { -webkit-tap-highlight-color: transparent; }
-  body { height: 100dvh; display: flex; flex-direction: column; }
-  .topbar { margin-top: calc(14px + env(safe-area-inset-top)); }
-  .autosave-toggle {
-    display: inline-flex; align-items: center; gap: 6px;
-    background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
-    font-size: 12px; font-weight: 600; padding: 5px 10px 5px 8px; border-radius: var(--radius-pill);
-    cursor: pointer; font-family: inherit; transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+  :root {
+    --bg: #000000; --bg-elevated: #1c1c1e; --bg-elevated-2: #2c2c2e; --bg-elevated-3: #3a3a3c;
+    --hairline: rgba(255,255,255,0.14); --hairline-soft: rgba(255,255,255,0.08);
+    --label: #ffffff; --label-secondary: rgba(235,235,245,0.60); --label-tertiary: rgba(235,235,245,0.30);
+    --blue: #0a84ff; --blue-soft: rgba(10,132,255,0.16); --blue-border: rgba(10,132,255,0.32);
+    --green: #30d158; --green-soft: rgba(48,209,88,0.16); --green-border: rgba(48,209,88,0.32);
+    --orange: #ff9f0a; --orange-soft: rgba(255,159,10,0.16); --orange-border: rgba(255,159,10,0.32);
+    --red: #ff453a; --red-soft: rgba(255,69,58,0.16); --red-border: rgba(255,69,58,0.32);
+    --radius-sm: 10px; --radius-md: 14px; --radius-lg: 20px; --radius-xl: 26px; --radius-pill: 999px;
+    --font: 'Google Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-numeral: 'IBM Plex Mono', ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --navbar-h: 52px;
   }
-  .autosave-toggle .icon { width: 14px; height: 14px; }
-  .autosave-toggle.on { background: var(--success-soft); border-color: var(--success-border); color: var(--success-text); }
-  .autosave-toggle.off { background: var(--surface-2); border-color: var(--border); color: var(--text-faint); }
-  main { flex: 1; overflow-y: auto; padding: 14px 16px calc(150px + env(safe-area-inset-bottom)); max-width: 560px; width: 100%; margin: 0 auto; }
-  #hero { text-align: center; padding: 18px 0 4px; }
-  #hero .eyebrow { margin-bottom: 10px; }
-  .hero-icon {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 48px; height: 48px; border-radius: var(--radius-lg);
-    background: var(--accent-soft); color: var(--accent-text); border: 1px solid var(--accent-border);
-    margin-bottom: 12px;
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); }
+  body {
+    font-family: var(--font); color: var(--label); -webkit-font-smoothing: antialiased;
+    height: 100dvh; overflow: hidden;
   }
-  .hero-icon .icon { width: 24px; height: 24px; }
-  #hero .big { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
-  #hero .sub { font-size: 13px; color: var(--text-faint); line-height: 1.5; max-width: 34ch; margin: 0 auto; }
-  .btn-lg {
-    display: flex; align-items: center; justify-content: center; gap: 9px;
-    width: 100%; border: 1px solid transparent; border-radius: var(--radius-md);
-    padding: 15px 16px; font-size: 16px; font-weight: 700; font-family: inherit;
-    cursor: pointer; margin: 7px 0;
-    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.08s ease, opacity 0.15s ease;
+  a { color: var(--blue); }
+  a:hover { color: #409cff; }
+  button { font: inherit; color: inherit; background: none; border: none; padding: 0; margin: 0; }
+  .icon { width: 16px; height: 16px; flex: none; display: block; }
+
+  .navbar {
+    position: sticky; top: 0; z-index: 5; flex: none; display: flex; align-items: center;
+    justify-content: space-between; height: var(--navbar-h); padding: 0 16px;
+    background: rgba(28,28,30,0.72); backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%); border-bottom: 1px solid var(--hairline);
   }
-  .btn-lg:active { transform: translateY(1px); }
-  .btn-lg:disabled { opacity: .5; cursor: not-allowed; }
-  .btn-lg .icon { width: 19px; height: 19px; }
-  .btn-lg.primary { background: var(--accent-solid); color: #fff; }
-  .btn-lg.primary:hover { background: var(--accent-solid-hover); }
-  .btn-lg.ghost { background: var(--surface-2); color: var(--text); border-color: var(--border); }
-  .btn-lg.ghost:hover { background: var(--surface-3); }
-  #preview { width: 100%; max-height: 240px; object-fit: contain; border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--border); margin: 12px 0; display: none; }
+  .navbar .brand { display: flex; align-items: center; gap: 8px; }
+  .navbar .brand-mark {
+    width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+    background: var(--blue-soft); border: 1px solid var(--blue-border); color: var(--blue);
+  }
+  .navbar .brand-title { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+  .navbar .trailing { display: flex; align-items: center; gap: 8px; }
+  .navbar .icon-btn {
+    width: 32px; height: 32px; border-radius: var(--radius-pill); display: flex; align-items: center; justify-content: center;
+    background: var(--bg-elevated); color: var(--label-secondary); border: 1px solid var(--hairline-soft);
+  }
+  .toggle-pill {
+    display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 12px 0 10px;
+    border-radius: var(--radius-pill); font-size: 12.5px; font-weight: 700; font-family: inherit; cursor: pointer;
+    background: var(--bg-elevated); border: 1px solid var(--hairline-soft); color: var(--label-secondary);
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+  }
+  .toggle-pill.on { background: var(--green-soft); border-color: var(--green-border); color: var(--green); }
+  .toggle-pill .icon { width: 14px; height: 14px; }
+
+  main {
+    position: absolute; top: var(--navbar-h); left: 0; right: 0; bottom: 0; overflow-y: auto;
+    padding: 8px 20px 160px; max-width: 560px; margin: 0 auto;
+  }
+  .section-label { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--label-secondary); margin: 20px 4px 8px; }
+
+  #hero { text-align: center; padding: 8px 0 26px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px 6px 10px; border-radius: var(--radius-pill);
+    background: var(--blue-soft); border: 1px solid var(--blue-border); color: var(--blue);
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .eyebrow .dot { width: 5px; height: 5px; border-radius: 999px; background: var(--blue); }
+  #hero h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; margin: 16px 0 0; }
+  #hero p { font-size: 15px; line-height: 1.45; color: var(--label-secondary); margin: 6px auto 0; max-width: 29ch; }
+
+  #preview {
+    display: none; width: 100%; max-height: 220px; object-fit: contain; border-radius: var(--radius-lg);
+    background: var(--bg-elevated); border: 1px solid var(--hairline-soft); margin: 0 0 16px;
+  }
   #status {
-    display: none; align-items: center; justify-content: center; gap: 8px;
-    text-align: center; font-size: 13.5px; color: var(--text-dim); margin: 12px 0;
+    display: none; align-items: center; justify-content: center; gap: 8px; text-align: center;
+    font-size: 13.5px; color: var(--label-secondary); margin: 0 0 16px;
   }
   #status .icon { width: 16px; height: 16px; }
-  .processing-note {
-    display: flex; align-items: center; justify-content: center; gap: 8px;
-    text-align: center; font-size: 13.5px; color: var(--text-dim); padding: 40px 0;
+
+  .notice {
+    display: none; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: var(--radius-md);
+    border: 1px solid; font-size: 13px; line-height: 1.5; margin: 0 0 16px;
   }
-  .processing-note .icon { width: 16px; height: 16px; }
+  .notice .notice-icon { flex: none; margin-top: 1px; }
+  .notice .notice-icon .icon { width: 16px; height: 16px; }
+  .notice-success { background: var(--green-soft); border-color: var(--green-border); color: var(--green); }
+  .notice-warn { background: var(--orange-soft); border-color: var(--orange-border); color: var(--orange); }
+
+  .processing-inline { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 40px 0 16px; }
+  .processing-inline .icon { width: 22px; height: 22px; color: var(--blue); }
+  .processing-inline span { font-size: 15px; font-weight: 600; color: var(--label); }
   @media (prefers-reduced-motion: no-preference) {
-    #status .icon, .processing-note .icon { animation: spin 1s linear infinite; }
+    #status .icon, .processing-inline .icon { animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
   }
-  #reply { display: none; }
-  .confidence-badge { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; margin-bottom: 12px; }
-  .confidence-badge .icon { width: 17px; height: 17px; flex: none; }
-  .confidence-badge.ok { color: var(--success-text); }
-  .confidence-badge.warn { color: var(--warn-text); }
 
-  /* --- confirm rows: the whole row is the tap target (56px+ min), no
-     precision-aimed pencil icon — tapping an editable row opens that field --- */
-  .tap-row {
-    display: flex; align-items: center; justify-content: space-between; width: 100%;
-    min-height: 56px; padding: 13px 16px; margin-bottom: 8px; gap: 10px;
-    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md);
-    font-family: inherit; text-align: left; color: var(--text); cursor: pointer;
+  .confidence { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin: 0 4px 14px; }
+  .confidence .icon { width: 16px; height: 16px; }
+  .confidence.ok { color: var(--green); }
+  .confidence.warn { color: var(--orange); }
+
+  .amount-card {
+    position: relative; width: 100%; background: var(--bg-elevated); border: 1px solid var(--hairline-soft);
+    border-radius: var(--radius-xl); padding: 26px 20px 24px; text-align: center; margin-bottom: 16px; font-family: inherit;
   }
-  .tap-row.editable { border-color: var(--accent-border); background: linear-gradient(155deg, var(--accent-soft), var(--surface-2)); }
-  .tap-row.static { cursor: default; opacity: .78; }
-  .tap-row .k { color: var(--text-faint); font-size: 12.5px; flex: none; }
-  .tap-row .v-wrap { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
-  .tap-row .v { font-weight: 600; font-size: 15px; }
-  .tap-row .v.missing { color: var(--warn-text); font-weight: 400; font-size: 12.5px; }
-  .tap-row.amount-row { padding: 18px; }
-  .tap-row .v.amount { font-size: 25px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
-  .tap-row .chev { display: inline-flex; color: var(--text-faint); flex: none; }
+  .amount-card.static { opacity: .78; }
+  .amount-card .edit-hint {
+    position: absolute; top: 16px; right: 16px; width: 28px; height: 28px; border-radius: 999px;
+    background: var(--bg-elevated-2); display: flex; align-items: center; justify-content: center; color: var(--label-secondary);
+  }
+  .amount-card .edit-hint .icon { width: 14px; height: 14px; }
+  .amount-card .label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--label-secondary); }
+  .amount-card .value { font-family: var(--font-numeral); font-size: 44px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin-top: 8px; }
+  .amount-card .value.missing { font-family: var(--font); font-size: 15px; font-weight: 400; color: var(--orange); margin-top: 10px; }
 
-  #editbox { display: none; margin: 12px 0; }
-  #editbox .edit-label { font-size: 12px; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
-  #editbox input.text-input { width: 100%; padding: 14px; font-size: 16px; margin-bottom: 8px; }
-  h3 { font-size: 11.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .05em; font-weight: 700; margin: 22px 0 8px; }
-  #recent { margin: 0; padding: 0; list-style: none; }
-  #recent li { display: flex; justify-content: space-between; align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--border-soft); font-size: 14px; gap: 10px; }
-  #recent li:last-child { border-bottom: none; }
-  #recent .amt { font-weight: 700; font-variant-numeric: tabular-nums; }
-  #recent .who { color: var(--text-faint); font-size: 11.5px; margin-top: 1px; }
-  #recent .recent-main { min-width: 0; }
-  #recent .recent-actions { display: flex; align-items: center; gap: 8px; flex: none; }
-  #recent .delete-btn { padding: 6px 9px; margin: 0; width: auto; font-size: 11.5px; font-weight: 600; border-radius: var(--radius-sm); }
+  .group { background: var(--bg-elevated); border: 1px solid var(--hairline-soft); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 16px; }
+  .row { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 12px 16px; width: 100%; font-family: inherit; text-align: left; color: inherit; }
+  .row + .row { border-top: 1px solid var(--hairline); }
+  button.row { cursor: pointer; }
+  .row .k { font-size: 14.5px; color: var(--label-secondary); flex: none; }
+  .row .v { font-size: 15px; font-weight: 600; margin-left: auto; }
+  .row .v.missing { font-weight: 400; color: var(--orange); font-size: 13.5px; }
+  .row .chev { color: var(--label-secondary); flex: none; }
+  .row .chev .icon { width: 14px; height: 14px; }
 
-  /* --- one docked bottom bar at a time: the capture shutter while idle, the
-     confirm actions once a draft is up for review — both sit in the thumb's
-     natural reach instead of scattered up the page (§ one-handed capture) --- */
+  .row .avatar {
+    width: 36px; height: 36px; border-radius: 11px; flex: none; background: var(--bg-elevated-2);
+    color: var(--label-secondary); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700;
+  }
+  .row .row-main { min-width: 0; flex: 1; }
+  .row .row-title { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .row-sub { font-size: 12.5px; color: var(--label-secondary); margin-top: 1px; }
+  .row .row-trailing { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
+  .row .row-amt { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .row .row-delete {
+    display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 600;
+    color: var(--label-tertiary); font-family: inherit; cursor: pointer;
+  }
+  .row .row-delete .icon { width: 11px; height: 11px; }
+  .row .row-delete:hover { color: var(--red); }
+  .group .empty { padding: 16px; color: var(--label-secondary); font-size: 13px; }
+
   .dock {
-    position: fixed; bottom: 0; left: 0; right: 0; z-index: 5; background: var(--surface-2);
-    backdrop-filter: blur(22px) saturate(150%); -webkit-backdrop-filter: blur(22px) saturate(150%);
-    border-top: 1px solid var(--border); border-radius: 24px 24px 0 0;
-    box-shadow: 0 -24px 60px -34px rgba(0,0,0,.7);
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: rgba(28,28,30,0.78);
+    backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-top: 1px solid var(--hairline); padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
     max-width: 560px; margin: 0 auto;
   }
-  #captureDock {
-    display: flex; align-items: center; justify-content: center; gap: 26px;
-    padding: 16px 24px calc(22px + env(safe-area-inset-bottom));
+  #captureDock .capture-row { display: flex; align-items: center; justify-content: center; gap: 34px; }
+  .dock-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; }
+  .dock-btn .tile { width: 52px; height: 52px; border-radius: 16px; background: var(--bg-elevated-2); border: 1px solid var(--hairline-soft); display: flex; align-items: center; justify-content: center; color: var(--label); }
+  .dock-btn .tile .icon { width: 22px; height: 22px; }
+  .dock-btn .lbl { font-size: 10.5px; font-weight: 600; color: var(--label-secondary); letter-spacing: 0.02em; }
+  .shutter { width: 72px; height: 72px; border-radius: 999px; background: #367af1; border: 3px solid rgba(255,255,255,0.28); box-shadow: 0 0 0 2px rgba(255,255,255,0.06); cursor: pointer; }
+  .shutter:disabled { opacity: .5; cursor: not-allowed; }
+
+  #actions { display: none; }
+  .btn-primary {
+    display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 54px;
+    border-radius: var(--radius-md); background: #ffffff; color: #000000; font-size: 16px; font-weight: 700; cursor: pointer;
   }
-  .side-btn {
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
-    width: 58px; height: 58px; border-radius: 18px; flex: none;
-    background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
-    font-size: 10px; font-weight: 700; cursor: pointer;
+  .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-primary .icon { width: 18px; height: 18px; }
+  .secondary-links { display: flex; align-items: center; justify-content: center; gap: 20px; margin-top: 12px; }
+  .text-link { font-size: 13px; font-weight: 600; color: var(--label-secondary); display: inline-flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 6px; }
+  .text-link .icon { width: 14px; height: 14px; }
+
+  #editOverlay { display: none; position: fixed; inset: 0; z-index: 20; flex-direction: column; justify-content: flex-end; }
+  .edit-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.55); border: none; padding: 0; cursor: default; }
+  .edit-sheet {
+    position: relative; background: var(--bg-elevated); border-top-left-radius: var(--radius-xl); border-top-right-radius: var(--radius-xl);
+    border: 1px solid var(--hairline-soft); border-bottom: none; box-shadow: 0 -24px 60px -20px rgba(0,0,0,0.7);
+    padding-bottom: env(safe-area-inset-bottom); max-width: 560px; width: 100%; margin: 0 auto;
   }
-  .side-btn .icon { width: 20px; height: 20px; }
-  .shutter {
-    width: 76px; height: 76px; border-radius: 999px; flex: none; cursor: pointer;
-    background: var(--accent-solid);
-    display: flex; align-items: center; justify-content: center;
-    border: 4px solid rgba(255,255,255,.14);
+  .edit-sheet .grabber { width: 36px; height: 5px; border-radius: 999px; background: var(--hairline); margin: 10px auto 2px; }
+  .sheet-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px 2px; }
+  .sheet-header .cancel { font-size: 16px; font-weight: 400; color: var(--blue); cursor: pointer; }
+  .sheet-header .title { font-size: 16px; font-weight: 600; }
+  .sheet-header .spacer { width: 52px; }
+
+  .amount-entry { text-align: center; padding: 22px 20px 4px; }
+  .amount-entry .display { font-family: var(--font-numeral); font-size: 46px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .amount-entry .caret { display: inline-block; width: 2px; height: 36px; margin-left: 3px; vertical-align: middle; border-radius: 2px; background: var(--blue); }
+  .amount-entry .hint { font-size: 13px; color: var(--label-secondary); margin-top: 8px; }
+  .keypad { display: grid; grid-template-columns: repeat(3, 1fr); padding: 6px 20px 4px; }
+  .keypad button { height: 60px; font-size: 26px; font-weight: 500; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .keypad button.del { color: var(--label-secondary); }
+  .keypad button.del .icon { width: 22px; height: 22px; }
+
+  .text-entry { padding: 20px 20px 8px; }
+  .text-entry .text-display {
+    display: block; width: 100%; text-align: center; font-family: inherit; font-size: 22px; font-weight: 700;
+    color: var(--label); background: none; border: none; outline: none; padding: 4px 0;
   }
-  .shutter:hover { background: var(--accent-solid-hover); }
-  .shutter .icon { width: 30px; height: 30px; color: #fff; }
-  #actions { display: none; padding: 16px 20px calc(14px + env(safe-area-inset-bottom)); }
-  #actions .big-cta { padding: 17px; font-size: 16px; margin: 0 0 10px; }
-  #actions .secondary-links { display: flex; align-items: center; justify-content: center; gap: 22px; }
-  #actions .text-link {
-    display: inline-flex; align-items: center; gap: 5px; background: none; border: none;
-    color: var(--text-faint); font-family: inherit; font-size: 12.5px; font-weight: 600; padding: 8px 4px; cursor: pointer;
-  }
-  #actions .text-link .icon { width: 14px; height: 14px; }
+  .text-entry .text-display::placeholder { color: var(--label-tertiary); font-weight: 400; }
+  .text-entry .hint { text-align: center; font-size: 13px; color: var(--label-secondary); margin-top: 4px; }
+
+  .sheet-save { padding: 14px 20px 20px; }
 </style>
 </head>
 <body>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@6/dist/tesseract.min.js"></script>
-  <header class="topbar">
-    <div class="topbar-brand">
+  <header class="navbar">
+    <div class="brand">
       <span class="brand-mark">${iconCamera}</span>
-      <div class="brand-title">BillSnap</div>
+      <span class="brand-title">BillSnap</span>
     </div>
-    <div class="topbar-status">
-      <a href="/dev/dashboard?device=" class="nav-link dash-link">${iconBarChart} Dashboard</a>
-      <button id="autosaveToggle" class="autosave-toggle" title="High-confidence AI reads auto-log with a 24h undo when on; every bill needs Confirm &amp; Save when off"></button>
+    <div class="trailing">
+      <a href="/dev/dashboard?device=" class="icon-btn dash-link" aria-label="Dashboard" title="Dashboard">${iconBarChart}</a>
+      <button id="autosaveToggle" class="toggle-pill" title="High-confidence AI reads auto-log with a 24h undo when on; every bill needs Confirm &amp; Save when off"></button>
     </div>
   </header>
   <main>
-    <div id="hero" data-reveal>
-      <span class="eyebrow"><span class="dot"></span>AI-powered capture</span>
-      <span class="hero-icon">${iconCamera}</span>
-      <div class="big">Snap a bill</div>
-      <div class="sub">Take a photo — I'll read the amount, date, vendor and GST, and you confirm.</div>
+    <div id="hero">
+      <span class="eyebrow"><span class="dot"></span>AI-Powered Capture</span>
+      <h1>Snap a bill</h1>
+      <p>Take a photo — I'll read the amount, date, vendor and GST, and you confirm.</p>
     </div>
     <input type="file" id="file" accept="image/*" hidden />
     <img id="preview" alt="bill preview" />
     <div id="status">${iconRefresh}<span>Reading…</span></div>
     <div id="reply" class="notice"></div>
     <div id="draft"></div>
-    <div id="editbox">
-      <div id="editlabel" class="edit-label"></div>
-      <input id="editvalue" class="text-input" placeholder="Value…" />
-      <button class="btn-lg primary" id="editsave">Save</button>
-      <button class="btn-lg ghost" id="editcancel">Cancel</button>
-    </div>
-    <h3 data-reveal>Recent bills</h3>
-    <ul id="recent" data-reveal></ul>
+    <div class="section-label">Recent</div>
+    <div class="group" id="recent"></div>
     <div id="badge" hidden></div>
   </main>
   <div id="captureDock" class="dock">
-    <button class="side-btn" id="gallery">${iconImage}<span>Gallery</span></button>
-    <button class="shutter" id="camera" aria-label="Take photo">${iconCamera}</button>
-    <button class="side-btn" id="manual">${iconPencil}<span>Manual</span></button>
+    <div class="capture-row">
+      <button class="dock-btn" id="gallery"><span class="tile">${iconImage}</span><span class="lbl">Gallery</span></button>
+      <button class="shutter" id="camera" aria-label="Take photo"></button>
+      <button class="dock-btn" id="manual"><span class="tile">${iconPencil}</span><span class="lbl">Manual</span></button>
+    </div>
   </div>
   <div id="actions" class="dock"></div>
+  <div id="editOverlay">
+    <button class="edit-scrim" id="editScrim" aria-label="Close"></button>
+    <div class="edit-sheet">
+      <div class="grabber"></div>
+      <div class="sheet-header">
+        <button class="cancel" id="editcancel">Cancel</button>
+        <span class="title" id="editlabel"></span>
+        <span class="spacer"></span>
+      </div>
+      <div id="amountEntry" class="amount-entry" hidden>
+        <span class="display" id="amountDisplay"></span><span class="caret"></span>
+        <div class="hint">Enter the amount from the receipt</div>
+        <div class="keypad" id="keypad">
+          <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+          <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+          <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+          <button data-k=".">.</button><button data-k="0">0</button>
+          <button class="del" data-k="back" aria-label="Delete">${iconBackspace}</button>
+        </div>
+      </div>
+      <div id="textEntry" class="text-entry" hidden>
+        <input id="editvalue" class="text-display" placeholder="Value…" />
+        <div class="hint" id="editHint"></div>
+      </div>
+      <div class="sheet-save">
+        <button class="btn-primary" id="editsave">Save</button>
+      </div>
+    </div>
+  </div>
 <script>
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -535,6 +627,8 @@ ${PREMIUM_STYLES}
   const ICON_UNDO = '${iconUndo}';
   const ICON_CHEV = '${iconChevronRight}';
   const ICON_REFRESH = '${iconRefresh}';
+  const ICON_PENCIL = '${iconPencil}';
+  const ICON_TRASH = '${iconTrash}';
 
   // Device identity: a stable browser id acts as the userPhone the router keys on.
   let device = localStorage.getItem("billsnap.device");
@@ -558,13 +652,17 @@ ${PREMIUM_STYLES}
   let ocrIndex = 0;
   let lastFile = null;
   let lastName = "";
-  let editing = false;
   let autoSave = true;
+  // The flowState currently shown in the edit sheet ("editing_amount", …), or
+  // null when closed — lets the 3s poll re-render without wiping in-progress
+  // typing (the keypad string, or the text input's value).
+  let editingField = null;
+  let amountValue = "";
 
   const EDIT_META = {
-    editing_amount: { label: "Amount", placeholder: "e.g. 45.00", inputmode: "decimal" },
-    editing_vendor: { label: "Vendor", placeholder: "Vendor or business name", inputmode: "text" },
-    editing_date: { label: "Date", placeholder: "e.g. 19/08/2026", inputmode: "text" },
+    editing_amount: { label: "Amount", kind: "amount" },
+    editing_vendor: { label: "Vendor", placeholder: "Vendor or business name", inputmode: "text", hint: "Vendor or business name", kind: "text" },
+    editing_date: { label: "Date", placeholder: "e.g. 19/08/2026", inputmode: "text", hint: "e.g. 19/08/2026", kind: "text" },
   };
 
   async function refresh() {
@@ -582,8 +680,8 @@ ${PREMIUM_STYLES}
   function render(s) {
     autoSave = s.autoSave;
     const toggle = $("autosaveToggle");
-    toggle.innerHTML = (autoSave ? ICON_CHECK : ICON_CROSS) + "<span>Auto-save " + (autoSave ? "on" : "off") + "</span>";
-    toggle.className = "autosave-toggle " + (autoSave ? "on" : "off");
+    toggle.innerHTML = (autoSave ? ICON_CHECK : ICON_CROSS) + "<span>Auto-save " + (autoSave ? "On" : "Off") + "</span>";
+    toggle.className = "toggle-pill" + (autoSave ? " on" : "");
     $("badge").innerHTML = chip(s.persistence) + chip(s.extractor) + (s.recent.length ? chip(s.recent.length + " logged", "accent") : "");
     const reply = $("reply");
     if (s.lastReply && s.draft === null) {
@@ -594,15 +692,19 @@ ${PREMIUM_STYLES}
     } else {
       reply.style.display = "none";
     }
+    $("hero").style.display = s.draft ? "none" : "block";
     renderDraft(s.draft);
     const recent = $("recent");
     if (!s.recent.length) {
-      recent.innerHTML = '<li class="empty">Nothing logged yet.</li>';
+      recent.innerHTML = '<div class="empty">Nothing logged yet.</div>';
     } else {
-      recent.innerHTML = s.recent.map((b) =>
-        '<li><span class="recent-main"><strong>' + esc(b.vendor || "—") + '</strong><div class="who">' + esc(b.category || "") + " · " + b.confirmedAt.slice(0, 10) + "</div></span>" +
-        '<span class="recent-actions"><span class="amt">' + money(b.amount) + '</span><button class="btn-lg ghost delete-btn" data-delete-id="' + esc(b.id) + '" onclick="deleteBill(this.dataset.deleteId)">Delete · <span class="delete-countdown" data-until="' + esc(b.deleteUntil) + '">2 hrs</span></button></span></li>'
-      ).join("");
+      recent.innerHTML = s.recent.map((b) => {
+        const initial = esc((b.vendor || "?").trim().charAt(0).toUpperCase() || "?");
+        return '<div class="row"><span class="avatar">' + initial + '</span>' +
+          '<div class="row-main"><div class="row-title">' + esc(b.vendor || "—") + '</div><div class="row-sub">' + esc(b.category || "") + " · " + b.confirmedAt.slice(0, 10) + '</div></div>' +
+          '<div class="row-trailing"><span class="row-amt">' + money(b.amount) + '</span>' +
+          '<button class="row-delete" data-delete-id="' + esc(b.id) + '" onclick="deleteBill(this.dataset.deleteId)">' + ICON_TRASH + '<span>Delete · <span class="delete-countdown" data-until="' + esc(b.deleteUntil) + '">2 hrs</span></span></button></div></div>';
+      }).join("");
       updateDeleteCountdowns();
     }
   }
@@ -613,7 +715,7 @@ ${PREMIUM_STYLES}
     document.querySelectorAll(".delete-countdown").forEach((el) => {
       const remaining = new Date(el.dataset.until).getTime() - Date.now();
       if (remaining <= 0) {
-        el.closest("button").remove();
+        el.closest(".row-delete").remove();
         return;
       }
       const minutes = Math.ceil(remaining / 60000);
@@ -629,8 +731,7 @@ ${PREMIUM_STYLES}
       wrap.innerHTML = "";
       actions.style.display = "none";
       captureDock.style.display = "flex";
-      editing = false;
-      $("editbox").style.display = "none";
+      closeEditSheet();
       return;
     }
     // Only one docked bar shows at a time: the shutter while idle (above),
@@ -639,21 +740,14 @@ ${PREMIUM_STYLES}
     if (d.flowState && d.flowState.startsWith("editing_")) {
       wrap.innerHTML = "";
       actions.style.display = "none";
-      editing = true;
-      const meta = EDIT_META[d.flowState] || { label: "Value", placeholder: "Value…", inputmode: "text" };
-      $("editlabel").textContent = meta.label;
-      $("editvalue").placeholder = meta.placeholder;
-      $("editvalue").setAttribute("inputmode", meta.inputmode);
-      $("editbox").style.display = "block";
-      $("editvalue").focus();
+      openEditSheet(d.flowState);
       return;
     }
-    editing = false;
-    $("editbox").style.display = "none";
+    closeEditSheet();
     if (!d.extraction) {
       // Draft exists (flowState "processing") but extraction hasn't landed yet —
       // a real window the 3s poll can catch while the AI call is in flight.
-      wrap.innerHTML = '<div class="processing-note">' + ICON_REFRESH + "<span>Reading your bill…</span></div>";
+      wrap.innerHTML = '<div class="processing-inline">' + ICON_REFRESH + "<span>Reading your bill…</span></div>";
       actions.style.display = "none";
       return;
     }
@@ -664,26 +758,93 @@ ${PREMIUM_STYLES}
     const missing = '<span class="v missing">Not found — edit to add</span>';
     // Whole-row tap targets (56px+, no precision-aimed pencil icon) — tapping
     // anywhere on an editable row opens that field.
-    const tapRow = (k, v, action, extraClass) =>
-      '<button class="tap-row editable' + (extraClass || "") + '" onclick="' + action + '"><span class="k">' + k +
-      '</span><span class="v-wrap">' + v + '<span class="chev">' + ICON_CHEV + "</span></span></button>";
-    const staticRow = (k, v) => '<div class="tap-row static"><span class="k">' + k + '</span>' + v + "</div>";
-    wrap.innerHTML = '<div class="confidence-badge ' + (flagOk ? "ok" : "warn") + '">' + flagIcon + "<span>" + esc(flagText) + "</span></div>" +
-      (e.amount === null
-        ? '<div class="tap-row static amount-row"><span class="k">Amount</span>' + missing + "</div>"
-        : tapRow("Amount", '<span class="v amount">' + money(e.amount) + "</span>", "act('2')", " amount-row")) +
+    const tapRow = (k, v, action) =>
+      '<button class="row" onclick="' + action + '"><span class="k">' + k +
+      '</span><span class="v">' + v + '</span><span class="chev">' + ICON_CHEV + "</span></button>";
+    const staticRow = (k, v) => '<div class="row"><span class="k">' + k + '</span>' + v + "</div>";
+    const amountCard = e.amount === null
+      ? '<div class="amount-card static"><div class="label">Amount</div><div class="value missing">Not found — edit to add</div></div>'
+      : '<button class="amount-card" onclick="act(\\'2\\')"><span class="edit-hint">' + ICON_PENCIL + '</span><div class="label">Amount</div><div class="value">' + money(e.amount) + "</div></button>";
+    wrap.innerHTML = '<div class="confidence ' + (flagOk ? "ok" : "warn") + '">' + flagIcon + "<span>" + esc(flagText) + "</span></div>" +
+      amountCard +
+      '<div class="section-label" style="margin-top:0">Details</div>' +
+      '<div class="group">' +
       tapRow("Vendor", e.vendor === null ? missing : '<span class="v">' + esc(e.vendor) + "</span>", "act('3')") +
       tapRow("Date", e.date === null ? missing : '<span class="v">' + esc(e.date) + "</span>", "act('5')") +
+      "</div>" +
+      '<div class="group">' +
       staticRow("ABN", e.abn === null ? '<span class="v missing">Not verified</span>' : '<span class="v">' + esc(e.abn) + "</span>") +
-      staticRow("GST", e.gst === null ? '<span class="v">—</span>' : '<span class="v">' + money(e.gst) + "</span>");
+      staticRow("GST", e.gst === null ? '<span class="v">—</span>' : '<span class="v">' + money(e.gst) + "</span>") +
+      "</div>";
     actions.style.display = "block";
     actions.innerHTML =
-      '<button class="btn-lg primary big-cta" onclick="act(\\'1\\')"><span class="icon-chip">' + ICON_CHECK + "</span><span>Confirm &amp; Save</span></button>" +
+      '<button class="btn-primary" onclick="act(\\'1\\')">' + ICON_CHECK + "<span>Confirm &amp; Save</span></button>" +
       '<div class="secondary-links">' +
       '<button class="text-link" onclick="act(\\'4\\')">' + ICON_CROSS + "<span>Skip / wrong bill</span></button>" +
       '<button class="text-link" onclick="act(\\'delete\\')">' + ICON_UNDO + "<span>Undo last</span></button>" +
       "</div>";
   }
+
+  function openEditSheet(flowState) {
+    const meta = EDIT_META[flowState] || { label: "Value", placeholder: "Value…", inputmode: "text", hint: "", kind: "text" };
+    $("editlabel").textContent = meta.label;
+    const isNewField = editingField !== flowState;
+    editingField = flowState;
+    $("editOverlay").style.display = "flex";
+    if (meta.kind === "amount") {
+      $("amountEntry").hidden = false;
+      $("textEntry").hidden = true;
+      if (isNewField) amountValue = "";
+      renderAmountDisplay();
+    } else {
+      $("amountEntry").hidden = true;
+      $("textEntry").hidden = false;
+      $("editvalue").placeholder = meta.placeholder;
+      $("editvalue").setAttribute("inputmode", meta.inputmode);
+      $("editHint").textContent = meta.hint;
+      if (isNewField) $("editvalue").value = "";
+      $("editvalue").focus();
+    }
+  }
+
+  function closeEditSheet() {
+    editingField = null;
+    $("editOverlay").style.display = "none";
+  }
+
+  function renderAmountDisplay() {
+    $("amountDisplay").textContent = amountValue ? "$" + amountValue : "$0";
+    $("editsave").disabled = amountValue.trim() === "";
+  }
+
+  $("keypad").addEventListener("click", (ev) => {
+    const btn = ev.target.closest("button[data-k]");
+    if (!btn) return;
+    const k = btn.dataset.k;
+    if (k === "back") {
+      amountValue = amountValue.slice(0, -1);
+    } else if (k === ".") {
+      if (!amountValue.includes(".")) amountValue += ".";
+    } else {
+      // Cap at two digits after the decimal point.
+      const dot = amountValue.indexOf(".");
+      if (dot === -1 || amountValue.length - dot <= 2) amountValue += k;
+    }
+    renderAmountDisplay();
+  });
+
+  $("editScrim").onclick = () => { closeEditSheet(); refresh(); };
+  $("editcancel").onclick = () => { closeEditSheet(); refresh(); };
+  $("editsave").onclick = () => {
+    if (editingField && EDIT_META[editingField] && EDIT_META[editingField].kind === "amount") {
+      const v = amountValue.trim();
+      if (v) { act(v); amountValue = ""; }
+    } else {
+      const v = $("editvalue").value.trim();
+      if (v) { act(v); $("editvalue").value = ""; }
+    }
+  };
+  $("editvalue").addEventListener("keydown", (ev) => { if (ev.key === "Enter") $("editsave").click(); });
 
   async function act(text) {
     await fetch("/app/action", {
@@ -802,17 +963,10 @@ ${PREMIUM_STYLES}
     });
     await act("2");
   };
-  $("editsave").onclick = () => {
-    const v = $("editvalue").value.trim();
-    if (v) { act(v); $("editvalue").value = ""; }
-  };
-  $("editcancel").onclick = () => { $("editbox").style.display = "none"; refresh(); };
-  $("editvalue").addEventListener("keydown", (ev) => { if (ev.key === "Enter") $("editsave").click(); });
   refresh();
   setInterval(refresh, 3000);
   setInterval(updateDeleteCountdowns, 60000);
 </script>
-<script>${PREMIUM_REVEAL_SCRIPT}</script>
 </body>
 </html>`;
 

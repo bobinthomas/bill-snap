@@ -75,3 +75,7 @@ export const iconPencil = svg(
 export const iconUndo = svg(`<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 1 1 0 12H9"/>`);
 
 export const iconChevronRight = svg(`<path d="m9 6 6 6-6 6"/>`);
+
+export const iconBackspace = svg(
+  `<path d="M9 6h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-5.5-6Z"/><path d="m11 10 4 4m0-4-4 4"/>`,
+);
