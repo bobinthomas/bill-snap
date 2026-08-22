@@ -5,6 +5,7 @@ node_modules/
 dist/
 coverage/
 *.log
+.claude/settings.local.json
 
 # Freebuff tooling state (local preview db/logs) — never committed
 .freebuff/

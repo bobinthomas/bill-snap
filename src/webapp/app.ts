@@ -272,6 +272,20 @@ export interface WebAppState {
 
 const WEB_DELETE_WINDOW_MS = 2 * 60 * 60_000;
 
+/**
+ * The confirm-flow reply text ("Reply `delete` within …") assumes WhatsApp's
+ * chat surface, where that's a real, literal instruction. The webapp has no
+ * reply/chat affordance — deletion happens via the Delete button on the
+ * Recent list, whose window is WEB_DELETE_WINDOW_MS — so rewrite it here
+ * rather than in the shared screens.ts, which WhatsApp still uses as-is.
+ */
+function webifyReply(text: string): string {
+  return text.replace(
+    /Reply `delete` within .+? to undo\.$/,
+    "Tap Delete on it in Recent (below) within 2 hours to undo.",
+  );
+}
+
 export async function webAppState(
   config: AppConfig,
   ai?: WorkersAi,
@@ -293,7 +307,7 @@ export async function webAppState(
       : ai
         ? "Workers AI + local OCR fallback"
         : "local OCR",
-    lastReply: list.length > 0 ? list[list.length - 1]! : null,
+    lastReply: list.length > 0 ? webifyReply(list[list.length - 1]!) : null,
     ocrRead: ocrReads.get(id) ?? null,
     autoSave: business?.autoSave ?? true,
     draft: draft
@@ -501,8 +515,8 @@ const WEB_APP_PAGE = `<!doctype html>
     border-top: 1px solid var(--hairline); padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
     max-width: 560px; margin: 0 auto;
   }
-  #captureDock .capture-row { display: flex; align-items: center; justify-content: center; gap: 34px; }
-  .dock-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; }
+  #captureDock .capture-row { display: flex; align-items: flex-start; justify-content: center; gap: 34px; }
+  .dock-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; margin-top: 10px; }
   .dock-btn .tile { width: 52px; height: 52px; border-radius: 16px; background: var(--bg-elevated-2); border: 1px solid var(--hairline-soft); display: flex; align-items: center; justify-content: center; color: var(--label); }
   .dock-btn .tile .icon { width: 22px; height: 22px; }
   .dock-btn .lbl { font-size: 10.5px; font-weight: 600; color: var(--label-secondary); letter-spacing: 0.02em; }
@@ -864,9 +878,14 @@ const WEB_APP_PAGE = `<!doctype html>
     const img = new Image();
     await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
     const w = img.naturalWidth || 1, h = img.naturalHeight || 1;
-    // Upscale to ~1200px on the long side (cap 4x to bound work on big photos).
+    // Scale to ~1200px on the long side: upscale small phone-compressed shots
+    // (cap 4x), but — just as importantly — DOWNSCALE full-res camera photos
+    // (commonly 3000-4000px). Un-downscaled, a 12MP photo runs Otsu over ~12M
+    // pixels and Tesseract over the full image, which is the actual cause of
+    // slow reads on real camera photos; the old floor of 1 on the scale
+    // factor blocked downscaling entirely and only ever let this scale up.
     const target = 1200;
-    const scale = Math.min(4, Math.max(1, target / Math.max(w, h)));
+    const scale = Math.min(4, target / Math.max(w, h));
     const c = document.createElement("canvas");
     c.width = Math.round(w * scale); c.height = Math.round(h * scale);
     const ctx = c.getContext("2d");
