@@ -108,6 +108,25 @@ describe("mobile-first webapp (/app)", () => {
     expect(state.recent[0]?.amount).toBe(12.5);
   });
 
+  it("manual entry's amount edit can be cancelled without entering a number", async () => {
+    const app = createApp();
+    const device = "web_test_manual_cancel";
+
+    // Tapping "Manual" creates a blank draft and jumps straight into the
+    // amount edit sheet (option 2) — same as $("manual").onclick in app.ts.
+    await post(app, "/app/manual", { device });
+    const opened = await post(app, "/app/action", { device, text: "2" });
+    expect(((await opened.json()) as WebAppState).draft?.flowState).toBe("editing_amount");
+
+    // The webapp's cancel/scrim tap sends "4" (the documented edit-cancel
+    // value) instead of only hiding the sheet locally — this is what lets
+    // the popup actually close instead of reopening on the next poll.
+    const cancelled = await post(app, "/app/action", { device, text: "4" });
+    const state = (await cancelled.json()) as WebAppState;
+    expect(state.draft?.flowState).toBe("awaiting_confirm");
+    expect(state.draft?.extraction?.amount).toBeNull();
+  });
+
   it("isolates bills between devices", async () => {
     const app = createApp();
     await app.request("/app/photo", { method: "POST", body: photoForm("web_a", undefined, "rent 2200 homebase") }, ENV);

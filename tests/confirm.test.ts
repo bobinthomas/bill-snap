@@ -8,6 +8,7 @@ import {
   AUTOSAVE_OFF_TEXT,
   AUTOSAVE_ON_TEXT,
   EDIT_AMOUNT_PROMPT,
+  EDIT_CANCELLED_TEXT,
   EDIT_DATE_PROMPT,
   EDIT_VENDOR_PROMPT,
   HELP_TEXT,
@@ -253,6 +254,47 @@ describe("edit sub-flows (§6.3)", () => {
     const updated = await store.findActiveDraft(PHONE);
     expect(updated?.extraction?.date.value).toBe("2026-08-10");
     expect(updated?.gateLevel).toBe("high");
+  });
+
+  it("`4` cancels the amount edit without touching the extraction", async () => {
+    const { store, send, deps } = makeDeps();
+    const draft = await makeDraft(store, extraction());
+    await handleDraftReply(textEvent("2"), draft, deps);
+    const editing = await store.findActiveDraft(PHONE);
+    await handleDraftReply(textEvent("4"), editing!, deps);
+
+    expect(send.sent[1]?.text).toContain(EDIT_CANCELLED_TEXT);
+    const updated = await store.findActiveDraft(PHONE);
+    expect(updated?.flowState).toBe("awaiting_confirm");
+    expect(updated?.extraction?.amount.value).toBe(245.0);
+  });
+
+  it("`4` cancels a from-scratch (manual-entry) amount edit and leaves the amount missing", async () => {
+    const { store, send, deps } = makeDeps();
+    const draft = await makeDraft(store, extraction({ amount: { value: null, confidence: 0 } }));
+    await handleDraftReply(textEvent("2"), draft, deps);
+    const editing = await store.findActiveDraft(PHONE);
+    await handleDraftReply(textEvent("4"), editing!, deps);
+
+    expect(send.sent[1]?.text).toContain(EDIT_CANCELLED_TEXT);
+    const updated = await store.findActiveDraft(PHONE);
+    expect(updated?.flowState).toBe("awaiting_confirm");
+    expect(updated?.extraction?.amount.value).toBeNull();
+    // Still a live draft, not skipped/expired — the cancel only backs out
+    // of the edit sub-flow, it doesn't discard the whole bill.
+    expect(updated?.status).not.toBe("expired");
+  });
+
+  it("`4` cancels the vendor and date edits too", async () => {
+    const { store, send, deps } = makeDeps();
+    const draft = await makeDraft(store, extraction());
+    await handleDraftReply(textEvent("3"), draft, deps);
+    await handleDraftReply(textEvent("4"), (await store.findActiveDraft(PHONE))!, deps);
+    expect((await store.findActiveDraft(PHONE))?.flowState).toBe("awaiting_confirm");
+
+    await handleDraftReply(textEvent("5"), (await store.findActiveDraft(PHONE))!, deps);
+    await handleDraftReply(textEvent("4"), (await store.findActiveDraft(PHONE))!, deps);
+    expect((await store.findActiveDraft(PHONE))?.flowState).toBe("awaiting_confirm");
   });
 });
 

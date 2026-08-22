@@ -38,6 +38,7 @@ export const EDIT_VENDOR_PROMPT = "✏️ Edit vendor — reply with the correct
 export const EDIT_VENDOR_RETRY = "Reply with the correct business name, e.g. `Telstra`.";
 export const EDIT_DATE_PROMPT = "✏️ Edit date — reply with the correct date, e.g. `10/08/2026` (or `4` to cancel).";
 export const EDIT_DATE_RETRY = "Reply a date like `10/08/2026` or `10-Aug-2026`.";
+export const EDIT_CANCELLED_TEXT = "↩️ Edit cancelled.";
 
 export const NUDGE_TEXT = "⏳ This bill isn't saved yet. Reply `1` to confirm, `2`/`3` to edit, or `4` to skip.";
 export const SKIPPED_TEXT = "❌ Skipped. Nothing was saved.";

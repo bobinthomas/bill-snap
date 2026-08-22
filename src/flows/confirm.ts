@@ -20,7 +20,7 @@ import {
 } from "../messaging/screens";
 import type { InboundEvent } from "../types";
 import type { RouteDeps } from "../webhook/router";
-import { applyEdit, beginEdit } from "./edit";
+import { applyEdit, beginEdit, cancelEdit } from "./edit";
 
 export async function handleDraftReply(
   event: InboundEvent,
@@ -29,8 +29,14 @@ export async function handleDraftReply(
 ): Promise<void> {
   const text = (event.text ?? "").trim().toLowerCase();
 
-  // Editing sub-flows: the next message is the corrected value.
+  // Editing sub-flows: the next message is the corrected value, except `4`
+  // which every edit prompt documents as "cancel" — checked first so it
+  // can't be swallowed as a literal amount/vendor/date value below.
   if (draft.flowState === "editing_amount" || draft.flowState === "editing_vendor" || draft.flowState === "editing_date") {
+    if (text === "4") {
+      await cancelEdit(draft, deps);
+      return;
+    }
     await applyEdit(event, draft, deps);
     return;
   }

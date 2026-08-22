@@ -9,6 +9,7 @@ import { computeGst, normaliseDate, parseAmount } from "../extraction/validate";
 import {
   EDIT_AMOUNT_PROMPT,
   EDIT_AMOUNT_RETRY,
+  EDIT_CANCELLED_TEXT,
   EDIT_DATE_PROMPT,
   EDIT_DATE_RETRY,
   EDIT_VENDOR_PROMPT,
@@ -28,6 +29,16 @@ export async function beginEdit(kind: EditKind, draft: DraftRecord, deps: RouteD
   const flowState = `editing_${kind}` as const;
   await deps.drafts.setFlowState(draft.id, { flowState });
   await deps.send.sendText(draft.userPhone, prompt);
+}
+
+/**
+ * Backs out of an editing sub-flow without applying a value (the edit
+ * prompts all promise "or `4` to cancel") — leaves whatever extraction
+ * already existed untouched and returns to the confirm screen.
+ */
+export async function cancelEdit(draft: DraftRecord, deps: RouteDeps): Promise<void> {
+  const updated = await deps.drafts.setFlowState(draft.id, { flowState: "awaiting_confirm" });
+  await deps.send.sendText(draft.userPhone, `${EDIT_CANCELLED_TEXT}\n\n${renderConfirmScreen(updated, deps.config)}`);
 }
 
 /** Applies the user's reply for the current `editing_*` state (§6.3 step 3). */

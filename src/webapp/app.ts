@@ -847,8 +847,11 @@ const WEB_APP_PAGE = `<!doctype html>
     renderAmountDisplay();
   });
 
-  $("editScrim").onclick = () => { closeEditSheet(); refresh(); };
-  $("editcancel").onclick = () => { closeEditSheet(); refresh(); };
+  // "4" is the shared edit sub-flow's documented cancel value (screens.ts) --
+  // sending it (not just hiding the sheet locally) is what actually clears
+  // the draft's editing_* flowState, so the next poll doesn't reopen it.
+  $("editScrim").onclick = () => { closeEditSheet(); act("4"); };
+  $("editcancel").onclick = () => { closeEditSheet(); act("4"); };
   $("editsave").onclick = () => {
     if (editingField && EDIT_META[editingField] && EDIT_META[editingField].kind === "amount") {
       const v = amountValue.trim();
