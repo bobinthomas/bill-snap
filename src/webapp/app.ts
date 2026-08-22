@@ -513,7 +513,7 @@ const WEB_APP_PAGE = `<!doctype html>
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: rgba(28,28,30,0.78);
     backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);
     border-top: 1px solid var(--hairline); padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
-    max-width: 560px; margin: 0 auto;
+    max-width: 560px; margin: 0 auto; justify-content: center;
   }
   #captureDock .capture-row { display: flex; align-items: flex-start; justify-content: center; gap: 34px; }
   .dock-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; margin-top: 10px; }
