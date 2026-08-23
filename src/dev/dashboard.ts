@@ -302,8 +302,10 @@ ${PREMIUM_STYLES}
   .toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .filters label { font-size: 12px; color: var(--text-faint); display: inline-flex; align-items: center; gap: 6px; }
-  /* --- KPI bento: "Total spend" is the featured tile, spanning two columns --- */
-  .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+  /* --- KPI bento: "Total spend" is the featured tile, spanning two columns.
+     5 columns (not 4) so the 4 cards — 1 + 2 + 1 + 1 — fill exactly one row
+     instead of the last card wrapping with 3 empty columns beside it. --- */
+  .kpi-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
   .kpi-card {
     background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius-lg);
     padding: 16px 18px; display: flex; flex-direction: column; gap: 10px;
