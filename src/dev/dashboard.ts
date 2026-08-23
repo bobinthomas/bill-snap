@@ -303,26 +303,21 @@ ${PREMIUM_STYLES}
   .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .filters label { font-size: 12px; color: var(--text-faint); display: inline-flex; align-items: center; gap: 6px; }
   /* --- KPI bento: "Total spend" is the featured tile, spanning two columns --- */
-  .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
   .kpi-card {
-    background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius-xl);
-    padding: 6px; display: flex; flex-direction: column; box-shadow: var(--shadow-md);
-  }
-  .kpi-card .kpi-core {
-    background: var(--surface-2); border: 1px solid var(--border); border-radius: calc(var(--radius-xl) - 6px);
-    box-shadow: inset 0 1px 1px rgba(255,255,255,.07);
-    padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; flex: 1;
+    background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius-lg);
+    padding: 16px 18px; display: flex; flex-direction: column; gap: 10px;
   }
   .kpi-card:nth-child(2) { grid-column: span 2; }
   .kpi-card .kpi-icon {
     display: flex; align-items: center; justify-content: center; width: 30px; height: 30px;
     border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent-text);
-    border: 1px solid var(--accent-border); box-shadow: inset 0 1px 1px rgba(255,255,255,.15);
+    border: 1px solid var(--accent-border);
   }
   .kpi-card .kpi-icon .icon { width: 15px; height: 15px; }
   .kpi-card .label { font-size: 11.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
   .kpi-card .value { font-family: var(--font-display); font-size: 27px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .kpi-card:nth-child(2) .value { font-size: 34px; }
+  .kpi-card:nth-child(2) .value { font-family: var(--font-numeral); font-size: 32px; font-weight: 700; letter-spacing: -0.01em; }
   .kpi-card .sub { font-size: 11.5px; color: var(--text-faint); }
   @media (max-width: 900px) { .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kpi-card:nth-child(2) { grid-column: span 2; } }
   @media (max-width: 480px) { .kpi-grid { grid-template-columns: 1fr; } .kpi-card:nth-child(2) { grid-column: span 1; } .kpi-card:nth-child(2) .value { font-size: 27px; } }
@@ -455,7 +450,7 @@ ${PREMIUM_STYLES}
       ['${iconBarChart}', "Total spend", money(d.totals.amount), ""],
       ['${iconTag}', "Total GST", money(d.totals.gst), ""],
       ['${iconCheckCircle}', "Auto-logged", d.totals.autoLogged + " of " + d.totals.count, d.totals.autoLogged ? "24 h undo window" : ""],
-    ].map((c) => '<div class="kpi-card"><div class="kpi-core"><span class="kpi-icon">' + c[0] + '</span><div><div class="label">' + c[1] + '</div><div class="value">' + c[2] + '</div><div class="sub">' + c[3] + "</div></div></div></div>").join("");
+    ].map((c) => '<div class="kpi-card"><span class="kpi-icon">' + c[0] + '</span><div><div class="label">' + c[1] + '</div><div class="value">' + c[2] + '</div><div class="sub">' + c[3] + "</div></div></div>").join("");
     $("cats").innerHTML = bars(d.categories, d.totals.amount);
     $("vendors").innerHTML = bars(d.vendors, d.totals.amount);
     $("days-title").textContent = d.filters.month
