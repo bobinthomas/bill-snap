@@ -672,6 +672,11 @@ const WEB_APP_PAGE = `<!doctype html>
   // typing (the keypad string, or the text input's value).
   let editingField = null;
   let amountValue = "";
+  // True from the moment "Manual entry" creates a blank draft until its
+  // auto-opened amount sheet is either saved (real data now exists) or
+  // cancelled (nothing was ever entered — discard the draft rather than
+  // leaving its empty confirm screen on screen, see cancelEditSheet()).
+  let manualEntryPending = false;
 
   const EDIT_META = {
     editing_amount: { label: "Amount", kind: "amount" },
@@ -850,15 +855,29 @@ const WEB_APP_PAGE = `<!doctype html>
   // "4" is the shared edit sub-flow's documented cancel value (screens.ts) --
   // sending it (not just hiding the sheet locally) is what actually clears
   // the draft's editing_* flowState, so the next poll doesn't reopen it.
-  $("editScrim").onclick = () => { closeEditSheet(); act("4"); };
-  $("editcancel").onclick = () => { closeEditSheet(); act("4"); };
+  // cancelEdit() on the server only backs the draft out to "awaiting_confirm"
+  // (right, for a real photo capture — the confirm screen still has the
+  // extracted data worth reviewing). A manual-entry draft has no extracted
+  // data at all, so backing out just exposes its blank confirm screen; send
+  // "4" a second time to expire that still-empty draft outright.
+  const cancelEditSheet = () => {
+    closeEditSheet();
+    if (manualEntryPending) {
+      manualEntryPending = false;
+      act("4").then(() => act("4"));
+    } else {
+      act("4");
+    }
+  };
+  $("editScrim").onclick = cancelEditSheet;
+  $("editcancel").onclick = cancelEditSheet;
   $("editsave").onclick = () => {
     if (editingField && EDIT_META[editingField] && EDIT_META[editingField].kind === "amount") {
       const v = amountValue.trim();
-      if (v) { act(v); amountValue = ""; }
+      if (v) { manualEntryPending = false; act(v); amountValue = ""; }
     } else {
       const v = $("editvalue").value.trim();
-      if (v) { act(v); $("editvalue").value = ""; }
+      if (v) { manualEntryPending = false; act(v); $("editvalue").value = ""; }
     }
   };
   $("editvalue").addEventListener("keydown", (ev) => { if (ev.key === "Enter") $("editsave").click(); });
@@ -978,6 +997,7 @@ const WEB_APP_PAGE = `<!doctype html>
   // Manual entry: create a blank draft (no photo) and jump straight into
   // editing the amount — the one field every bill needs.
   $("manual").onclick = async () => {
+    manualEntryPending = true;
     await fetch("/app/manual", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
