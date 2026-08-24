@@ -32,7 +32,12 @@ export async function handleDraftReply(
   // Editing sub-flows: the next message is the corrected value, except `4`
   // which every edit prompt documents as "cancel" — checked first so it
   // can't be swallowed as a literal amount/vendor/date value below.
-  if (draft.flowState === "editing_amount" || draft.flowState === "editing_vendor" || draft.flowState === "editing_date") {
+  if (
+    draft.flowState === "editing_amount" ||
+    draft.flowState === "editing_vendor" ||
+    draft.flowState === "editing_date" ||
+    draft.flowState === "editing_category"
+  ) {
     if (text === "4") {
       await cancelEdit(draft, deps);
       return;
@@ -60,6 +65,9 @@ export async function handleDraftReply(
       await beginEdit("date", draft, deps);
       return;
     }
+    case "6":
+      await beginEdit("category", draft, deps);
+      return;
     case "help":
       await deps.send.sendText(draft.userPhone, HELP_TEXT);
       return;
@@ -73,7 +81,7 @@ export async function handleDraftReply(
     default:
       await deps.send.sendText(
         draft.userPhone,
-        "Reply `1` to confirm, `2`/`3` to edit, `5` to edit the date, `4` to skip, or `help`/`setup`.",
+        "Reply `1` to confirm, `2`/`3`/`6` to edit, `5` to edit the date, `4` to skip, or `help`/`setup`.",
       );
   }
 }

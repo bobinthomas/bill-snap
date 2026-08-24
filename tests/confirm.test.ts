@@ -9,6 +9,7 @@ import {
   AUTOSAVE_ON_TEXT,
   EDIT_AMOUNT_PROMPT,
   EDIT_CANCELLED_TEXT,
+  EDIT_CATEGORY_PROMPT,
   EDIT_DATE_PROMPT,
   EDIT_VENDOR_PROMPT,
   HELP_TEXT,
@@ -102,8 +103,10 @@ describe("renderConfirmScreen (§6.2 variants)", () => {
     const screen = renderConfirmScreen(draft, CONFIG);
     expect(screen).toContain("✅ High confidence");
     expect(screen).toContain(`Amount: ${formatAUD(245)}`);
+    expect(screen).toContain("Category: utilities");
     expect(screen).toContain("ABN: 51 824 753 556");
     expect(screen).not.toContain("5️⃣ Edit date");
+    expect(screen).toContain("6️⃣ Edit category");
     expect(screen).toContain("4️⃣ Skip / Wrong bill");
   });
 
@@ -143,6 +146,12 @@ describe("renderConfirmScreen (§6.2 variants)", () => {
     const draft = await makeDraft(store, extraction({ abn: { value: null, confidence: 0 } }));
     expect(renderConfirmScreen(draft, CONFIG)).toContain("ABN: Not verified");
   });
+
+  it("shows category as missing when absent", async () => {
+    const { store } = makeDeps();
+    const draft = await makeDraft(store, extraction({ category_hint: { value: null, confidence: 0 } }));
+    expect(renderConfirmScreen(draft, CONFIG)).toContain("Category: Not found — edit to add");
+  });
 });
 
 describe("handleDraftReply options (§6.2)", () => {
@@ -155,7 +164,7 @@ describe("handleDraftReply options (§6.2)", () => {
     expect(await store.findActiveDraft(PHONE)).toBeNull();
   });
 
-  it("2/3/5 → enters the edit sub-flows", async () => {
+  it("2/3/5/6 → enters the edit sub-flows", async () => {
     const { store, send, deps } = makeDeps();
     const draft = await makeDraft(store, extraction({ date: { value: null, confidence: 0 } }));
     await handleDraftReply(textEvent("2"), draft, deps);
@@ -168,6 +177,10 @@ describe("handleDraftReply options (§6.2)", () => {
     const draft3 = await makeDraft(store, extraction({ date: { value: null, confidence: 0 } }));
     await handleDraftReply(textEvent("5"), draft3, deps);
     expect(send.sent[2]?.text).toBe(EDIT_DATE_PROMPT);
+
+    const draft4 = await makeDraft(store, extraction());
+    await handleDraftReply(textEvent("6"), draft4, deps);
+    expect(send.sent[3]?.text).toBe(EDIT_CATEGORY_PROMPT);
   });
 
   it("4 → skips and expires the draft", async () => {
@@ -295,6 +308,41 @@ describe("edit sub-flows (§6.3)", () => {
     await handleDraftReply(textEvent("5"), (await store.findActiveDraft(PHONE))!, deps);
     await handleDraftReply(textEvent("4"), (await store.findActiveDraft(PHONE))!, deps);
     expect((await store.findActiveDraft(PHONE))?.flowState).toBe("awaiting_confirm");
+  });
+
+  it("edits the category, lower-casing the reply", async () => {
+    const { store, send, deps } = makeDeps();
+    const draft = await makeDraft(store, extraction());
+    await handleDraftReply(textEvent("6"), draft, deps);
+    const editing = await store.findActiveDraft(PHONE);
+    await handleDraftReply(textEvent("Rent"), editing!, deps);
+
+    expect(send.sent[1]?.text).toContain("✅ Category updated — rent");
+    expect((await store.findActiveDraft(PHONE))?.extraction?.category_hint.value).toBe("rent");
+  });
+
+  it("re-prompts on an empty category and stays in the sub-flow", async () => {
+    const { store, send, deps } = makeDeps();
+    const draft = await makeDraft(store, extraction());
+    await handleDraftReply(textEvent("6"), draft, deps);
+    const editing = await store.findActiveDraft(PHONE);
+    await handleDraftReply(textEvent("   "), editing!, deps);
+
+    expect(send.sent[1]?.text).toContain("Reply with a category");
+    expect((await store.findActiveDraft(PHONE))?.flowState).toBe("editing_category");
+  });
+
+  it("`4` cancels the category edit without touching the extraction", async () => {
+    const { store, send, deps } = makeDeps();
+    const draft = await makeDraft(store, extraction());
+    await handleDraftReply(textEvent("6"), draft, deps);
+    const editing = await store.findActiveDraft(PHONE);
+    await handleDraftReply(textEvent("4"), editing!, deps);
+
+    expect(send.sent[1]?.text).toContain(EDIT_CANCELLED_TEXT);
+    const updated = await store.findActiveDraft(PHONE);
+    expect(updated?.flowState).toBe("awaiting_confirm");
+    expect(updated?.extraction?.category_hint.value).toBe("utilities");
   });
 });
 

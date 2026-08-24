@@ -108,6 +108,26 @@ describe("mobile-first webapp (/app)", () => {
     expect(state.recent[0]?.amount).toBe(12.5);
   });
 
+  it("supports the category edit sub-flow (option 6) and surfaces it on the draft and recent list", async () => {
+    const app = createApp();
+    const device = "web_test_category";
+
+    await app.request("/app/photo", { method: "POST", body: photoForm(device, undefined, "coffee shop") }, ENV);
+
+    const opened = await post(app, "/app/action", { device, text: "6" });
+    expect(((await opened.json()) as WebAppState).draft?.flowState).toBe("editing_category");
+
+    const edited = await post(app, "/app/action", { device, text: "Rent" });
+    const afterEdit = (await edited.json()) as WebAppState;
+    expect(afterEdit.draft?.flowState).toBe("awaiting_confirm");
+    expect(afterEdit.draft?.extraction?.category).toBe("rent");
+
+    await post(app, "/app/action", { device, text: "1" });
+    const stateRes = await app.request(`/app/state?device=${device}`, {}, ENV);
+    const state = (await stateRes.json()) as WebAppState;
+    expect(state.recent[0]?.category).toBe("rent");
+  });
+
   it("manual entry's amount edit can be cancelled without entering a number", async () => {
     const app = createApp();
     const device = "web_test_manual_cancel";

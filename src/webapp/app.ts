@@ -241,6 +241,7 @@ export interface WebDraftState {
     gst: number | null;
     gstBasis: string;
     invoiceNumber: string | null;
+    category: string | null;
   } | null;
 }
 
@@ -327,6 +328,7 @@ export async function webAppState(
                 gst: draft.extraction.gst.value,
                 gstBasis: draft.extraction.gst_basis,
                 invoiceNumber: draft.extraction.invoice_number.value,
+                category: draft.extraction.category_hint.value,
               }
             : null,
         }
@@ -682,6 +684,7 @@ const WEB_APP_PAGE = `<!doctype html>
     editing_amount: { label: "Amount", kind: "amount" },
     editing_vendor: { label: "Vendor", placeholder: "Vendor or business name", inputmode: "text", hint: "Vendor or business name", kind: "text" },
     editing_date: { label: "Date", placeholder: "e.g. 19/08/2026", inputmode: "text", hint: "e.g. 19/08/2026", kind: "text" },
+    editing_category: { label: "Category", placeholder: "e.g. rent, utilities, wages", inputmode: "text", hint: "e.g. rent, utilities, wages, inventory, misc", kind: "text" },
   };
 
   async function refresh() {
@@ -790,6 +793,7 @@ const WEB_APP_PAGE = `<!doctype html>
       '<div class="group">' +
       tapRow("Vendor", e.vendor === null ? missing : '<span class="v">' + esc(e.vendor) + "</span>", "act('3')") +
       tapRow("Date", e.date === null ? missing : '<span class="v">' + esc(e.date) + "</span>", "act('5')") +
+      tapRow("Category", e.category === null ? missing : '<span class="v">' + esc(e.category) + "</span>", "act('6')") +
       "</div>" +
       '<div class="group">' +
       staticRow("ABN", e.abn === null ? '<span class="v missing">Not verified</span>' : '<span class="v">' + esc(e.abn) + "</span>") +

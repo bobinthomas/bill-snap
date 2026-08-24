@@ -38,6 +38,9 @@ export const EDIT_VENDOR_PROMPT = "✏️ Edit vendor — reply with the correct
 export const EDIT_VENDOR_RETRY = "Reply with the correct business name, e.g. `Telstra`.";
 export const EDIT_DATE_PROMPT = "✏️ Edit date — reply with the correct date, e.g. `10/08/2026` (or `4` to cancel).";
 export const EDIT_DATE_RETRY = "Reply a date like `10/08/2026` or `10-Aug-2026`.";
+export const EDIT_CATEGORY_PROMPT =
+  "✏️ Edit category — reply with the correct category, e.g. `rent`, `utilities`, `wages`, `inventory`, or `misc` (or `4` to cancel).";
+export const EDIT_CATEGORY_RETRY = "Reply with a category, e.g. `rent`, `utilities`, `wages`, `inventory`, or `misc`.";
 export const EDIT_CANCELLED_TEXT = "↩️ Edit cancelled.";
 
 export const NUDGE_TEXT = "⏳ This bill isn't saved yet. Reply `1` to confirm, `2`/`3` to edit, or `4` to skip.";
@@ -78,6 +81,7 @@ export function renderConfirmScreen(draft: DraftRecord, config: AppConfig): stri
   const dateFlag = dateLow ? " ⚠️ verify" : "";
   const abn = e?.abn.value ?? null;
   const gst = e?.gst.value ?? null;
+  const category = e?.category_hint.value ?? null;
 
   const lines = [
     header,
@@ -85,6 +89,7 @@ export function renderConfirmScreen(draft: DraftRecord, config: AppConfig): stri
     `Amount: ${amount === null ? missing : formatAUD(amount) + amountFlag}`,
     `Vendor: ${vendor === null ? missing : vendor + vendorFlag}`,
     `Date: ${date === null ? missing : date + dateFlag}`,
+    `Category: ${category === null ? missing : category}`,
     `ABN: ${abn === null ? "Not verified" : abn}`,
     `GST: ${gst === null ? "—" : formatAUD(gst)}`,
     "",
@@ -92,6 +97,7 @@ export function renderConfirmScreen(draft: DraftRecord, config: AppConfig): stri
     "1️⃣ Confirm & Save",
     "2️⃣ Edit amount",
     "3️⃣ Edit vendor",
+    "6️⃣ Edit category",
   ];
   if (date === null || dateLow) lines.push("5️⃣ Edit date");
   lines.push("4️⃣ Skip / Wrong bill");

@@ -10,6 +10,8 @@ import {
   EDIT_AMOUNT_PROMPT,
   EDIT_AMOUNT_RETRY,
   EDIT_CANCELLED_TEXT,
+  EDIT_CATEGORY_PROMPT,
+  EDIT_CATEGORY_RETRY,
   EDIT_DATE_PROMPT,
   EDIT_DATE_RETRY,
   EDIT_VENDOR_PROMPT,
@@ -21,11 +23,17 @@ import type { BillExtraction } from "../types";
 import type { RouteDeps } from "../webhook/router";
 import { resolveBusiness } from "./helpers";
 
-export type EditKind = "amount" | "vendor" | "date";
+export type EditKind = "amount" | "vendor" | "date" | "category";
+
+const EDIT_PROMPTS: Record<EditKind, string> = {
+  amount: EDIT_AMOUNT_PROMPT,
+  vendor: EDIT_VENDOR_PROMPT,
+  date: EDIT_DATE_PROMPT,
+  category: EDIT_CATEGORY_PROMPT,
+};
 
 export async function beginEdit(kind: EditKind, draft: DraftRecord, deps: RouteDeps): Promise<void> {
-  const prompt =
-    kind === "amount" ? EDIT_AMOUNT_PROMPT : kind === "vendor" ? EDIT_VENDOR_PROMPT : EDIT_DATE_PROMPT;
+  const prompt = EDIT_PROMPTS[kind];
   const flowState = `editing_${kind}` as const;
   await deps.drafts.setFlowState(draft.id, { flowState });
   await deps.send.sendText(draft.userPhone, prompt);
@@ -92,6 +100,17 @@ export async function applyEdit(
     }
     const extraction: BillExtraction = { ...base, date: { value: iso, confidence: 1 } };
     await finishEdit(draft, extraction, `✅ Date updated — ${iso}`, deps);
+    return;
+  }
+
+  if (draft.flowState === "editing_category") {
+    const category = text.toLowerCase();
+    if (category === "" || category.length > 30) {
+      await deps.send.sendText(draft.userPhone, EDIT_CATEGORY_RETRY);
+      return;
+    }
+    const extraction: BillExtraction = { ...base, category_hint: { value: category, confidence: 1 } };
+    await finishEdit(draft, extraction, `✅ Category updated — ${category}`, deps);
     return;
   }
 
