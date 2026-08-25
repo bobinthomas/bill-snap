@@ -6,7 +6,7 @@ import { createMockMessenger } from "../src/messaging/mock";
 import { HELP_TEXT, UNKNOWN_COMMAND_TEXT } from "../src/messaging/screens";
 import { route, type RouteDeps } from "../src/webhook/router";
 import type { InboundEvent } from "../src/types";
-import { FakeBillStorage, FakeBusinessStore, FakeDraftStore, FakeUserStore } from "./fakes";
+import { FakeBillStorage, FakeBusinessStore, FakeDraftStore, FakeTransactionStore, FakeUserStore } from "./fakes";
 
 const PHONE = "61412345678";
 
@@ -39,6 +39,7 @@ function makeDeps() {
     users,
     businesses: new FakeBusinessStore(users),
     drafts,
+    transactions: new FakeTransactionStore(),
     extraction: createExtractionService(config),
     send,
     storage: new FakeBillStorage(),
@@ -101,6 +102,7 @@ describe("routing photos into the draft flow (§5.6)", () => {
       users,
       businesses: new FakeBusinessStore(users),
       drafts: new FakeDraftStore(),
+      transactions: new FakeTransactionStore(),
       extraction: createExtractionService(config),
       send,
       storage: new FakeBillStorage(),

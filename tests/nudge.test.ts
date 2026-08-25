@@ -5,7 +5,7 @@ import { NUDGE_TEXT } from "../src/messaging/screens";
 import { createMockMessenger, type MockMessenger } from "../src/messaging/mock";
 import type { DraftRecord, DraftStore } from "../src/db/drafts";
 import type { RouteDeps } from "../src/webhook/router";
-import { FakeBillStorage, FakeBusinessStore, FakeDraftStore, FakeUserStore } from "./fakes";
+import { FakeBillStorage, FakeBusinessStore, FakeDraftStore, FakeTransactionStore, FakeUserStore } from "./fakes";
 
 const PHONE = "61412345678";
 const CONFIG = loadConfig({});
@@ -20,6 +20,7 @@ function makeDeps(): { store: FakeDraftStore; send: MockMessenger; deps: RouteDe
     users,
     businesses,
     drafts: store,
+    transactions: new FakeTransactionStore(),
     extraction: {
       run: async () => ({ extraction: undefined as never, gate: "low", machineRead: true, source: "none" }),
     },

@@ -56,6 +56,10 @@ export interface FlowPatch {
   machineRead?: boolean;
   /** R2 URLs after the M8 upload; replaces the WhatsApp media IDs. */
   imageUrls?: string[];
+  /** Tenant key (§5.5), resolved once the business is known (photo.ts, after
+   *  resolveBusiness — never set at createDraft time, see its doc comment on
+   *  why draft creation must stay ahead of any lookup). */
+  businessId?: string;
 }
 
 export interface ConfirmOptions {
@@ -203,6 +207,10 @@ class D1DraftStore implements DraftStore {
     if (patch.imageUrls !== undefined) {
       sets.push("image_urls = ?");
       values.push(JSON.stringify(patch.imageUrls));
+    }
+    if (patch.businessId !== undefined) {
+      sets.push("business_id = ?");
+      values.push(patch.businessId);
     }
 
     const row = await this.db

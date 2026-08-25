@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config";
 import { createD1BusinessStore } from "../src/db/businesses";
 import { createD1DraftStore, isDuplicateMatch, type DraftRecord } from "../src/db/drafts";
+import { createD1TransactionStore } from "../src/db/transactions";
 import { createD1UserStore } from "../src/db/users";
 import type { BillExtraction } from "../src/types";
 import { createTestD1 } from "./fakes";
 
 const PHONE = "61412345678";
 const BIZ = "11111111-1111-4111-8111-111111111111";
+const PHONE2 = "61412345679";
+const BIZ2 = "22222222-2222-4222-8222-222222222222";
 
 const EXTRACTION: BillExtraction = {
   amount: { value: 245, confidence: 0.98 },
@@ -237,6 +240,46 @@ describe("DraftStore (D1)", () => {
     expect(updated?.imageUrls).toEqual(["/bills/biz-1/2026/08/MEDIA-1.jpg"]);
   });
 
+  it("setFlowState persists business_id onto the transaction row", async () => {
+    const { db, store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    // Not set at createDraft time — the tenant key is only known once the
+    // business is resolved (photo.ts, after resolveBusiness).
+    expect(
+      (await db.prepare("select business_id from transactions where id = ?").bind(draft!.id).first<{
+        business_id: string | null;
+      }>())?.business_id,
+    ).toBeNull();
+
+    await store.setFlowState(draft!.id, { flowState: "awaiting_confirm", businessId: BIZ });
+
+    const row = await db
+      .prepare("select business_id from transactions where id = ?")
+      .bind(draft!.id)
+      .first<{ business_id: string | null }>();
+    expect(row?.business_id).toBe(BIZ);
+  });
+
+  it("setFlowState accepts editing_category (flow_state CHECK constraint, migration 0002)", async () => {
+    const { store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    // Regression: 0001_schema.sql's flow_state CHECK omitted 'editing_category'
+    // even though it's a reachable FlowState (confirm option 6) — this threw a
+    // CHECK constraint error against real D1 before migration 0002 fixed it.
+    const updated = await store.setFlowState(draft!.id, { flowState: "editing_category" });
+    expect(updated.flowState).toBe("editing_category");
+  });
+
   it("confirm denormalises the extraction onto the logged row", async () => {
     const { store } = makeStore();
     const draft = await store.createDraft({
@@ -406,5 +449,72 @@ describe("DraftStore (D1)", () => {
     const active = await store.findActiveDraft(PHONE, new Date("2026-08-15T12:30:00.000Z"));
     expect(active).not.toBeNull();
     expect(active?.id).not.toBe(draft!.id);
+  });
+});
+
+describe("TransactionStore (D1) — vendor->category episodic memory", () => {
+  /** Logs one confirmed bill for (phone, businessId) with the given vendor/category. */
+  async function logBill(
+    db: ReturnType<typeof createTestD1>,
+    phone: string,
+    businessId: string,
+    vendor: string,
+    category: string,
+    waMessageId: string,
+  ): Promise<void> {
+    const drafts = createD1DraftStore(db);
+    const draft = await drafts.createDraft({
+      userPhone: phone,
+      waMessageId,
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await drafts.setFlowState(draft!.id, {
+      flowState: "awaiting_confirm",
+      extraction: {
+        ...EXTRACTION,
+        vendor: { value: vendor, confidence: 1 },
+        category_hint: { value: category, confidence: 1 },
+      },
+      gateLevel: "high",
+      machineRead: false,
+      businessId,
+    });
+    await drafts.confirm(draft!.id, new Date("2026-08-15T12:01:00.000Z"));
+  }
+
+  it("returns the majority category once a vendor clears the sample-size and share thresholds", async () => {
+    const db = createTestD1();
+    seedUser(db);
+    await logBill(db, PHONE, BIZ, "Telstra", "utilities", "wamid.1");
+    await logBill(db, PHONE, BIZ, "Telstra", "utilities", "wamid.2");
+    await logBill(db, PHONE, BIZ, "Telstra", "utilities", "wamid.3");
+    await logBill(db, PHONE, BIZ, "telstra", "misc", "wamid.4"); // one dissenting vote (75% share), case-varied
+
+    const history = await createD1TransactionStore(db).getVendorCategoryHistory(BIZ);
+    expect(history.get("TELSTRA")).toMatchObject({ category: "utilities", sampleSize: 4 });
+  });
+
+  it("drops a vendor whose history is one-off or too evenly split to trust", async () => {
+    const db = createTestD1();
+    seedUser(db);
+    await logBill(db, PHONE, BIZ, "Bunnings", "inventory", "wamid.1"); // sample size 1 — not enough
+
+    const history = await createD1TransactionStore(db).getVendorCategoryHistory(BIZ);
+    expect(history.has("BUNNINGS")).toBe(false);
+  });
+
+  it("scopes history to one business — no cross-tenant leakage", async () => {
+    const db = createTestD1();
+    seedUser(db, PHONE, BIZ);
+    seedUser(db, PHONE2, BIZ2);
+    await logBill(db, PHONE, BIZ, "Bunnings", "inventory", "wamid.1");
+    await logBill(db, PHONE, BIZ, "Bunnings", "inventory", "wamid.2");
+    await logBill(db, PHONE2, BIZ2, "Bunnings", "wages", "wamid.3");
+    await logBill(db, PHONE2, BIZ2, "Bunnings", "wages", "wamid.4");
+
+    const store = createD1TransactionStore(db);
+    expect((await store.getVendorCategoryHistory(BIZ)).get("BUNNINGS")).toMatchObject({ category: "inventory" });
+    expect((await store.getVendorCategoryHistory(BIZ2)).get("BUNNINGS")).toMatchObject({ category: "wages" });
   });
 });

@@ -16,6 +16,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config";
 import { createD1BusinessStore } from "../src/db/businesses";
 import { createD1DraftStore } from "../src/db/drafts";
+import { createD1TransactionStore } from "../src/db/transactions";
 import { createD1UserStore } from "../src/db/users";
 import { createExtractionService } from "../src/extraction/pipeline";
 import { createMockMessenger } from "../src/messaging/mock";
@@ -46,6 +47,7 @@ describe("local D1 smoke (photo → confirm → undo)", () => {
   const users = createD1UserStore(db);
   const businesses = createD1BusinessStore(db);
   const drafts = createD1DraftStore(db);
+  const transactions = createD1TransactionStore(db);
   const storage = createR2BillStorage(bucket);
 
   const send = createMockMessenger({
@@ -60,6 +62,7 @@ describe("local D1 smoke (photo → confirm → undo)", () => {
     users,
     businesses,
     drafts,
+    transactions,
     extraction: createExtractionService(config),
     send,
     storage,
@@ -116,6 +119,16 @@ describe("local D1 smoke (photo → confirm → undo)", () => {
     expect(url?.startsWith("/bills/")).toBe(true);
     expect(puts).toHaveLength(1);
     expect(new TextDecoder().decode(puts[0]!.bytes)).toBe("fake-smoke-jpeg-bytes");
+
+    // Onboarding auto-created a business for this new number, and handlePhoto
+    // resolves it before setFlowState — the tenant key lands on the real row.
+    const user = await users.findUser(phone);
+    const row = await db
+      .prepare("select business_id from transactions where id = ?")
+      .bind(draft!.id)
+      .first<{ business_id: string | null }>();
+    expect(row?.business_id).toBe(user?.businessId);
+    expect(row?.business_id).not.toBeNull();
   });
 
   it("confirms the draft and undoes it through the real stores", async () => {

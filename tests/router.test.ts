@@ -7,7 +7,7 @@ import { createMockMessenger } from "../src/messaging/mock";
 import { HELP_TEXT, UNKNOWN_COMMAND_TEXT, WELCOME_TEXT } from "../src/messaging/screens";
 import { route } from "../src/webhook/router";
 import type { InboundEvent } from "../src/types";
-import { FakeBillStorage, FakeBusinessStore, FakeDraftStore, FakeUserStore } from "./fakes";
+import { FakeBillStorage, FakeBusinessStore, FakeDraftStore, FakeTransactionStore, FakeUserStore } from "./fakes";
 
 const APP_SECRET = "test-app-secret";
 const ENV = { WHATSAPP_APP_SECRET: APP_SECRET };
@@ -36,6 +36,7 @@ function routeDeps(send = createMockMessenger(), users = KNOWN) {
     users,
     businesses: new FakeBusinessStore(users),
     drafts: new FakeDraftStore(),
+    transactions: new FakeTransactionStore(),
     extraction: createExtractionService(config),
     send,
     storage: new FakeBillStorage(),
@@ -85,6 +86,7 @@ describe("route (§5.6)", () => {
       users,
       businesses,
       drafts,
+      transactions: new FakeTransactionStore(),
       extraction: createExtractionService(loadConfig({})),
       send,
       storage: new FakeBillStorage(),
@@ -115,6 +117,7 @@ describe("end-to-end: POST /webhook → help round trip", () => {
       users: KNOWN,
       businesses: new FakeBusinessStore(KNOWN),
       drafts: new FakeDraftStore(),
+      transactions: new FakeTransactionStore(),
       send,
       storage: new FakeBillStorage(),
     });
@@ -165,6 +168,7 @@ describe("end-to-end: POST /webhook → help round trip", () => {
       users: KNOWN,
       businesses: new FakeBusinessStore(KNOWN),
       drafts: new FakeDraftStore(),
+      transactions: new FakeTransactionStore(),
       send,
       storage: new FakeBillStorage(),
     });

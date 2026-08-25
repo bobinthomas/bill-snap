@@ -305,8 +305,10 @@ export function mergeKnownVendors(learned: Array<string | null>): string[] {
 
 /** Uppercase, collapse whitespace/punctuation to single spaces — no OCR
  *  folding, so an already-correct reading ("telstra" vs "Telstra") compares
- *  equal and is never rewritten. */
-function normalizeVendorCase(s: string): string {
+ *  equal and is never rewritten. Exported as the single normalization used
+ *  everywhere a vendor name becomes a lookup/grouping key (vendor memory,
+ *  §extraction/vendor-categories). */
+export function normalizeVendorCase(s: string): string {
   return s
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, " ")

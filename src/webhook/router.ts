@@ -8,6 +8,7 @@
 import type { AppConfig } from "../config";
 import type { BusinessStore } from "../db/businesses";
 import type { DraftStore } from "../db/drafts";
+import type { TransactionStore } from "../db/transactions";
 import type { UserStore } from "../db/users";
 import type { ExtractionService } from "../extraction/pipeline";
 import { handleCommand } from "../flows/commands";
@@ -22,6 +23,7 @@ export interface RouteDeps {
   users: UserStore;
   businesses: BusinessStore;
   drafts: DraftStore;
+  transactions: TransactionStore;
   extraction: ExtractionService;
   send: Messenger;
   storage: BillStorage;

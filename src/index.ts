@@ -30,6 +30,7 @@ import {
 } from "./webapp/app";
 import { createD1BusinessStore, type BusinessStore } from "./db/businesses";
 import { createD1DraftStore, type DraftStore } from "./db/drafts";
+import { createD1TransactionStore, type TransactionStore } from "./db/transactions";
 import { createD1UserStore, type UserStore } from "./db/users";
 import { createExtractionService, type ExtractionService } from "./extraction/pipeline";
 import type { WorkersAi } from "./extraction/workers-ai";
@@ -63,6 +64,7 @@ export interface AppDeps {
   users?: UserStore;
   businesses?: BusinessStore;
   drafts?: DraftStore;
+  transactions?: TransactionStore;
   extraction?: ExtractionService;
   send?: Messenger;
   storage?: BillStorage;
@@ -292,12 +294,13 @@ function buildDeps(
   const users = deps.users ?? (db ? createD1UserStore(db) : undefined);
   const businesses = deps.businesses ?? (db ? createD1BusinessStore(db) : undefined);
   const drafts = deps.drafts ?? (db ? createD1DraftStore(db) : undefined);
+  const transactions = deps.transactions ?? (db ? createD1TransactionStore(db) : undefined);
   const extraction = deps.extraction ?? createExtractionService(config, ai);
   const storage = deps.storage ?? (bills ? createR2BillStorage(bills) : undefined);
-  if (!messenger || !users || !businesses || !drafts || !storage) return { ok: false };
+  if (!messenger || !users || !businesses || !drafts || !transactions || !storage) return { ok: false };
   return {
     ok: true,
-    value: { users, businesses, drafts, extraction, send: messenger, storage, config },
+    value: { users, businesses, drafts, transactions, extraction, send: messenger, storage, config },
   };
 }
 

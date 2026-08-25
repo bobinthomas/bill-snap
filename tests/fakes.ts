@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import type { D1Like } from "../src/db/d1";
@@ -18,7 +18,9 @@ import {
   type DraftStore,
   type FlowPatch,
 } from "../src/db/drafts";
+import type { TransactionStore } from "../src/db/transactions";
 import type { UserRecord, UserStore } from "../src/db/users";
+import type { VendorCategorySuggestion } from "../src/extraction/vendor-categories";
 import type { BillStorage, UploadBillOptions, UploadedBill } from "../src/storage/bills";
 import type { BillExtraction } from "../src/types";
 
@@ -44,16 +46,23 @@ export class FakeBillStorage implements BillStorage {
 }
 
 /**
- * A node:sqlite-backed D1 shim (§5.5). Runs the REAL migration SQL
- * (migrations/0001_schema.sql) against an in-memory SQLite database and
+ * A node:sqlite-backed D1 shim (§5.5). Runs every REAL migration file under
+ * migrations/ (numbered, applied in order — same convention `wrangler d1
+ * migrations apply` follows) against an in-memory SQLite database and
  * implements the narrow D1Like surface the stores use — so store tests,
  * the demo/dashboard paths, and the smoke test exercise the real schema and
  * SQL semantics (foreign keys, partial unique index idempotency, RETURNING)
  * with zero Docker / no Cloudflare account.
  */
-export function createTestD1(migrationPath = "migrations/0001_schema.sql"): D1Like {
+export function createTestD1(): D1Like {
   const db = new DatabaseSync(":memory:");
-  db.exec(readFileSync(resolve(process.cwd(), migrationPath), "utf8"));
+  const migrationsDir = resolve(process.cwd(), "migrations");
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort();
+  for (const file of files) {
+    db.exec(readFileSync(resolve(migrationsDir, file), "utf8"));
+  }
   return {
     prepare(sql: string) {
       const stmt = db.prepare(sql);
@@ -153,6 +162,17 @@ export class FakeBusinessStore implements BusinessStore {
   async setSetupStep(phoneNumber: string, step: SetupStep | null): Promise<void> {
     if (step === null) this.steps.delete(phoneNumber);
     else this.steps.set(phoneNumber, step);
+  }
+}
+
+/** Vendor->category history double — empty by default (unseeded tests just
+ *  need RouteDeps to type-check); tests exercising the episodic layer seed
+ *  `history` directly. */
+export class FakeTransactionStore implements TransactionStore {
+  history = new Map<string, VendorCategorySuggestion>();
+
+  async getVendorCategoryHistory(): Promise<Map<string, VendorCategorySuggestion>> {
+    return this.history;
   }
 }
 

@@ -17,9 +17,11 @@ import type { AppConfig } from "../config";
 import type { CloudBindings } from "../bindings";
 import { createD1BusinessStore, type BusinessStore } from "../db/businesses";
 import { createD1DraftStore, type DraftStore } from "../db/drafts";
+import { createD1TransactionStore, type TransactionStore } from "../db/transactions";
 import { createD1UserStore, type UserStore } from "../db/users";
 import { createExtractionService, type ExtractionOutcome, type ExtractionService } from "../extraction/pipeline";
 import { mergeKnownVendors } from "../extraction/regex";
+import { aggregateVendorCategoryHistory } from "../extraction/vendor-categories";
 import type { WorkersAi } from "../extraction/workers-ai";
 import type { DownloadedMedia, Messenger } from "../messaging/whatsapp";
 import { createR2BillStorage, type BillStorage } from "../storage/bills";
@@ -96,11 +98,28 @@ export function webDeps(
   const businesses: BusinessStore = bindings?.db ? createD1BusinessStore(bindings.db) : memory.businesses;
   const drafts: DraftStore = bindings?.db ? createD1DraftStore(bindings.db) : memory.drafts;
   const storage: BillStorage = bindings?.bills ? createR2BillStorage(bindings.bills) : memory.storage;
+  // Memory mode has no business_id scoping (it's the deviceId-scoped dev/demo
+  // fallback) — derive vendor->category history straight from this device's
+  // own logged bills, same source `mergeKnownVendors` below already reads.
+  const transactions: TransactionStore = bindings?.db
+    ? createD1TransactionStore(bindings.db)
+    : {
+        async getVendorCategoryHistory() {
+          const logged = await drafts.listLogged(deviceId, 500);
+          const rows = logged.flatMap((d) => {
+            const vendor = d.extraction?.vendor.value;
+            const category = d.extraction?.category_hint.value;
+            return vendor && category ? [{ vendor, category }] : [];
+          });
+          return aggregateVendorCategoryHistory(rows);
+        },
+      };
   const inner = createExtractionService(config, ai);
   return {
     users,
     businesses,
     drafts,
+    transactions,
     extraction: {
       async run(input) {
         // Grow the known-vendor list from the business's own logged bills

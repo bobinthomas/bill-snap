@@ -14,7 +14,7 @@ import { createMockMessenger, type MockMessenger } from "../src/messaging/mock";
 import type { InboundEvent } from "../src/types";
 import type { BillExtraction } from "../src/types";
 import { route, type RouteDeps } from "../src/webhook/router";
-import { FakeBillStorage, FakeBusinessStore, FakeDraftStore, FakeUserStore } from "./fakes";
+import { FakeBillStorage, FakeBusinessStore, FakeDraftStore, FakeTransactionStore, FakeUserStore } from "./fakes";
 
 const PHONE = "61412345678";
 const CONFIG = loadConfig({});
@@ -74,6 +74,7 @@ async function makeDeps(opts: {
     users,
     businesses,
     drafts: store,
+    transactions: new FakeTransactionStore(),
     extraction:
       opts.extraction ??
       ({

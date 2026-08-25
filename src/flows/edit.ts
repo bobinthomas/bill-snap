@@ -6,6 +6,7 @@
 import type { DraftRecord } from "../db/drafts";
 import { classify } from "../extraction/gate";
 import { computeGst, normaliseDate, parseAmount } from "../extraction/validate";
+import { CATEGORIES, type Category } from "../extraction/vendor-categories";
 import {
   EDIT_AMOUNT_PROMPT,
   EDIT_AMOUNT_RETRY,
@@ -105,11 +106,14 @@ export async function applyEdit(
 
   if (draft.flowState === "editing_category") {
     const category = text.toLowerCase();
-    if (category === "" || category.length > 30) {
+    if (!(CATEGORIES as readonly string[]).includes(category)) {
       await deps.send.sendText(draft.userPhone, EDIT_CATEGORY_RETRY);
       return;
     }
-    const extraction: BillExtraction = { ...base, category_hint: { value: category, confidence: 1 } };
+    const extraction: BillExtraction = {
+      ...base,
+      category_hint: { value: category as Category, confidence: 1 },
+    };
     await finishEdit(draft, extraction, `✅ Category updated — ${category}`, deps);
     return;
   }

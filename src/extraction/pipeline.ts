@@ -35,6 +35,7 @@ import { classify } from "./gate";
 import { createMockWorkersAiExtractor } from "./mock";
 import { extractFromText, isGarbageOcrText } from "./regex";
 import { normaliseExtraction } from "./validate";
+import { fillCategoryHint, type VendorCategorySuggestion } from "./vendor-categories";
 import {
   createWorkersAiExtractor,
   createWorkersAiVisionExtractor,
@@ -58,6 +59,11 @@ export interface ExtractionInput {
    *  canonicalise mangled merchant names (§5.3 vendor cleanup). The extraction
    *  layer stays stateless — callers gather this from the store. */
   knownVendors?: string[];
+  /** This business's own vendor->category history (episodic memory), keyed by
+   *  normalizeVendorCase(vendor). Used to pre-fill `category_hint` when this
+   *  bill's own text/model read didn't find one — same stateless-pipeline
+   *  pattern as `knownVendors` above (see vendor-categories.ts). */
+  vendorCategoryHistory?: Map<string, VendorCategorySuggestion>;
 }
 
 export interface ExtractionOutcome {
@@ -152,7 +158,8 @@ export function createExtractionService(config: AppConfig, ai?: WorkersAi): Extr
         source = "none";
       }
 
-      const extraction = normaliseExtraction(raw, gstRegistered);
+      const normalised = normaliseExtraction(raw, gstRegistered);
+      const extraction = fillCategoryHint(normalised, input.vendorCategoryHistory ?? new Map());
       const gate = classify(extraction, config.extraction);
       // §5.8 trust posture: Workers AI (text + vision) is the trusted parser
       // again — High-confidence AI readings auto-log (24 h undo, duplicate

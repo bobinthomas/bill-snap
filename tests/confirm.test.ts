@@ -24,7 +24,7 @@ import { createMockMessenger, type MockMessenger } from "../src/messaging/mock";
 import type { InboundEvent } from "../src/types";
 import type { BillExtraction } from "../src/types";
 import type { RouteDeps } from "../src/webhook/router";
-import { FakeBillStorage, FakeBusinessStore, FakeDraftStore, FakeUserStore } from "./fakes";
+import { FakeBillStorage, FakeBusinessStore, FakeDraftStore, FakeTransactionStore, FakeUserStore } from "./fakes";
 
 const PHONE = "61412345678";
 const CONFIG = loadConfig({});
@@ -88,6 +88,7 @@ function makeDeps(): {
     users,
     businesses,
     drafts: store,
+    transactions: new FakeTransactionStore(),
     extraction: { run: async () => ({ extraction: extraction(), gate: "high", machineRead: false, source: "ai" }) },
     send,
     storage: new FakeBillStorage(),
@@ -330,6 +331,22 @@ describe("edit sub-flows (§6.3)", () => {
 
     expect(send.sent[1]?.text).toContain("Reply with a category");
     expect((await store.findActiveDraft(PHONE))?.flowState).toBe("editing_category");
+  });
+
+  it("re-prompts on a category outside the 5 valid values instead of accepting free text", async () => {
+    // Regression: this used to accept any non-empty text ≤30 chars, which
+    // could later blow up drafts.confirm()'s INSERT against the real D1
+    // CHECK constraint (wages/utilities/inventory/rent/misc only).
+    const { store, send, deps } = makeDeps();
+    const draft = await makeDraft(store, extraction());
+    await handleDraftReply(textEvent("6"), draft, deps);
+    const editing = await store.findActiveDraft(PHONE);
+    await handleDraftReply(textEvent("food"), editing!, deps);
+
+    expect(send.sent[1]?.text).toContain("Reply with a category");
+    const updated = await store.findActiveDraft(PHONE);
+    expect(updated?.flowState).toBe("editing_category");
+    expect(updated?.extraction?.category_hint.value).toBe("utilities"); // unchanged
   });
 
   it("`4` cancels the category edit without touching the extraction", async () => {

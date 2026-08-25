@@ -62,12 +62,20 @@ export async function handlePhoto(event: InboundEvent, deps: RouteDeps): Promise
     }
   }
 
+  // Episodic memory (§extraction/vendor-categories): this business's own
+  // confirmed vendor->category history, used to pre-fill category_hint when
+  // this bill's own text/model read didn't find one.
+  const vendorCategoryHistory = business
+    ? await deps.transactions.getVendorCategoryHistory(business.id)
+    : undefined;
+
   const outcome = await deps.extraction.run({
     text: event.text ?? "",
     ocrText: event.ocrText,
     imageBytes,
     imageMimeType,
     gstRegistered: business?.gstRegistered ?? true,
+    vendorCategoryHistory,
   });
 
   // §5.8 auto-log: High confidence, not machine-read, auto_save on, no duplicate.
@@ -90,6 +98,7 @@ export async function handlePhoto(event: InboundEvent, deps: RouteDeps): Promise
         gateLevel: outcome.gate,
         machineRead: outcome.machineRead,
         imageUrls,
+        businessId: business?.id,
       });
       const confirmed = await deps.drafts.confirm(draft.id, new Date(), { autoLogged: true });
       if (confirmed) {
@@ -106,6 +115,7 @@ export async function handlePhoto(event: InboundEvent, deps: RouteDeps): Promise
     gateLevel: outcome.gate,
     machineRead: outcome.machineRead,
     imageUrls,
+    businessId: business?.id,
   });
 
   await deps.send.sendText(event.userPhone, renderConfirmScreen(updated, deps.config));

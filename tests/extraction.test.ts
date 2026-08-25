@@ -12,6 +12,7 @@ import {
   round2,
   validateAbn,
 } from "../src/extraction/validate";
+import { fillCategoryHint, type VendorCategorySuggestion } from "../src/extraction/vendor-categories";
 import type { BillExtraction } from "../src/types";
 
 const CONFIG = loadConfig({});
@@ -653,6 +654,68 @@ describe("extraction service pipeline", () => {
     const outcome = await service.run({ text: "Telstra $245.00 GST inclusive 51 824 753 556" });
     expect(outcome.extraction.gst.value).toBe(round2(245 / 11));
     expect(outcome.extraction.abn.value).toBe("51 824 753 556");
+  });
+
+  it("pre-fills category_hint from injected vendor history when the text has no keyword match", async () => {
+    const service = createExtractionService(CONFIG);
+    const history = new Map<string, VendorCategorySuggestion>([
+      ["ACME CORP", { category: "rent", confidence: 0.9, sampleSize: 5 }],
+    ]);
+    const outcome = await service.run({ text: "$245.00 10/08/2026 Acme Corp", vendorCategoryHistory: history });
+    expect(outcome.extraction.vendor.value).toBe("Acme Corp");
+    expect(outcome.extraction.category_hint.value).toBe("rent");
+  });
+
+  it("never overrides a category the text itself already matched (regex keyword outranks history)", async () => {
+    const service = createExtractionService(CONFIG);
+    const history = new Map<string, VendorCategorySuggestion>([
+      ["HOMEBASE", { category: "misc", confidence: 0.95, sampleSize: 10 }],
+    ]);
+    const outcome = await service.run({ text: "rent 2200 homebase", vendorCategoryHistory: history });
+    expect(outcome.extraction.category_hint.value).toBe("rent");
+  });
+});
+
+describe("fillCategoryHint (procedural layer — episodic > semantic > untouched)", () => {
+  function ext(overrides: Partial<BillExtraction> = {}): BillExtraction {
+    return extraction({ category_hint: { value: null, confidence: 0 }, ...overrides });
+  }
+
+  it("does nothing when the bill's own extraction already has a category", () => {
+    const withHint = ext({ category_hint: { value: "rent", confidence: 0.8 } });
+    const result = fillCategoryHint(withHint, new Map([["TELSTRA", { category: "misc", confidence: 1, sampleSize: 9 }]]));
+    expect(result.category_hint.value).toBe("rent");
+  });
+
+  it("fills from episodic history when the vendor matches (case/spacing-insensitive)", () => {
+    const history = new Map<string, VendorCategorySuggestion>([
+      ["ORIGIN ENERGY", { category: "utilities", confidence: 0.8, sampleSize: 4 }],
+    ]);
+    const result = fillCategoryHint(ext({ vendor: { value: "origin  energy", confidence: 0.9 } }), history);
+    expect(result.category_hint).toEqual({ value: "utilities", confidence: 0.8 });
+  });
+
+  it("falls back to the semantic dictionary when there's no episodic history for the vendor", () => {
+    const result = fillCategoryHint(ext({ vendor: { value: "Bunnings", confidence: 0.9 } }), new Map());
+    expect(result.category_hint.value).toBe("inventory");
+  });
+
+  it("prefers episodic history over the semantic dictionary for the same vendor", () => {
+    const history = new Map<string, VendorCategorySuggestion>([
+      ["BUNNINGS", { category: "misc", confidence: 0.75, sampleSize: 3 }],
+    ]);
+    const result = fillCategoryHint(ext({ vendor: { value: "Bunnings", confidence: 0.9 } }), history);
+    expect(result.category_hint.value).toBe("misc");
+  });
+
+  it("leaves category_hint null when neither source has anything for the vendor", () => {
+    const result = fillCategoryHint(ext({ vendor: { value: "Some Random Cafe", confidence: 0.9 } }), new Map());
+    expect(result.category_hint.value).toBeNull();
+  });
+
+  it("leaves category_hint null when there's no vendor to look up", () => {
+    const result = fillCategoryHint(ext({ vendor: { value: null, confidence: 0 } }), new Map());
+    expect(result.category_hint.value).toBeNull();
   });
 });
 

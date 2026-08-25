@@ -8,6 +8,7 @@ import {
   FakeBillStorage,
   FakeBusinessStore,
   FakeDraftStore,
+  FakeTransactionStore,
   FakeUserStore,
 } from "./fakes";
 
@@ -70,6 +71,7 @@ function makeDeps(outcome: ExtractionOutcome, send: MockMessenger) {
       users,
       businesses,
       drafts: new FakeDraftStore(),
+      transactions: new FakeTransactionStore(),
       extraction,
       send,
       storage,
@@ -164,6 +166,7 @@ describe("M8 media download (§5.6)", () => {
       users,
       businesses,
       drafts: new FakeDraftStore(),
+      transactions: new FakeTransactionStore(),
       extraction: createExtractionService(config),
       send,
       storage: new FakeBillStorage(),
