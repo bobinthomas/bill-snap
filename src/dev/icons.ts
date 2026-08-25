@@ -79,3 +79,7 @@ export const iconChevronRight = svg(`<path d="m9 6 6 6-6 6"/>`);
 export const iconBackspace = svg(
   `<path d="M9 6h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-5.5-6Z"/><path d="m11 10 4 4m0-4-4 4"/>`,
 );
+
+export const iconSettings = svg(
+  `<circle cx="12" cy="12" r="3.25"/><path d="M12 3v3M12 18v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M3 12h3M18 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>`,
+);

@@ -18,7 +18,14 @@ import type { CloudBindings } from "./bindings";
 import { Hono } from "hono";
 import { basicAuth } from "hono/basic-auth";
 import { loadConfig } from "./config";
-import { billsToCsv, dashboardData, exportFileName, renderDashboardPage } from "./dev/dashboard";
+import {
+  billsToCsv,
+  dashboardBusiness,
+  dashboardData,
+  exportFileName,
+  renderDashboardPage,
+  renderDashboardSettingsPage,
+} from "./dev/dashboard";
 import { DEMO_MEDIA_ID, demoDeps, demoState, renderDemoPage, setDemoMedia, simulatePhoto, simulateText } from "./dev/demo";
 import {
   renderWebAppPage,
@@ -144,6 +151,11 @@ export function createApp(deps: AppDeps = {}) {
   });
   app.get("/dev/dashboard", (c) => {
     return c.html(renderDashboardPage());
+  });
+  app.get("/dev/dashboard/settings", async (c) => {
+    const device = c.req.query("device") || undefined;
+    const business = await dashboardBusiness(loadConfig(c.env), cloudBindings(c.env), device);
+    return c.html(renderDashboardSettingsPage(business, device));
   });
   app.get("/dev/dashboard/data", async (c) => {
     const q = c.req.query();

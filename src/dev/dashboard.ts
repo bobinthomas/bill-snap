@@ -7,10 +7,12 @@
  */
 import type { AppConfig } from "../config";
 import type { CloudBindings } from "../bindings";
+import type { BusinessRecord } from "../db/businesses";
 import type { DraftRecord } from "../db/drafts";
 import { mergeKnownVendors } from "../extraction/regex";
+import { resolveBusiness } from "../flows/helpers";
 import { demoDeps, DEMO_PHONE } from "./demo";
-import { iconBarChart, iconCheckCircle, iconDownload, iconHome, iconMessageCircle, iconReceipt, iconRefresh, iconTag } from "./icons";
+import { iconBarChart, iconCheckCircle, iconDownload, iconHome, iconReceipt, iconRefresh, iconSettings, iconTag } from "./icons";
 import { BASE_STYLES } from "./theme";
 import { PREMIUM_FONTS, PREMIUM_REVEAL_SCRIPT, PREMIUM_STYLES } from "./theme-premium";
 
@@ -368,7 +370,7 @@ ${PREMIUM_STYLES}
       <div><div class="brand-title">BillSnap</div><div class="brand-sub">Dashboard</div></div>
     </div>
     <nav class="topbar-nav">
-      <a class="nav-link" href="/dev/demo">${iconMessageCircle} Demo console</a>
+      <a id="settings-link" class="nav-link" href="/dev/dashboard/settings">${iconSettings} Settings</a>
       <a class="nav-link" href="/">${iconHome} Landing</a>
     </nav>
     <div class="topbar-status"><span id="badge" class="status-badge"></span></div>
@@ -485,6 +487,11 @@ ${PREMIUM_STYLES}
     if (dev) p.set("device", dev);
     return p;
   }
+  // Carry the same device scope into Settings so it shows this business, not the demo one.
+  (function () {
+    const dev = new URLSearchParams(location.search).get("device");
+    if (dev) $("settings-link").href = "/dev/dashboard/settings?device=" + encodeURIComponent(dev);
+  })();
   async function refresh() {
     const q = currentParams().toString();
     const res = await fetch("/dev/dashboard/data" + (q ? "?" + q : ""));
@@ -509,4 +516,86 @@ ${PREMIUM_STYLES}
 
 export function renderDashboardPage(): string {
   return DASHBOARD_PAGE;
+}
+
+/** Fetches the business behind `device` (default the demo phone) for the settings page. */
+export async function dashboardBusiness(
+  config: AppConfig,
+  bindings?: CloudBindings,
+  userPhone: string = DEMO_PHONE,
+): Promise<BusinessRecord | null> {
+  const deps = demoDeps(config, undefined, bindings);
+  return resolveBusiness(deps, userPhone);
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+}
+
+/**
+ * Settings page — basic company info, pre-filled and read for now. Not wired
+ * to a save endpoint yet (BusinessPatch/updateBusiness already exist in
+ * db/businesses.ts for when it is).
+ */
+export function renderDashboardSettingsPage(business: BusinessRecord | null, device?: string): string {
+  const name = business ? escapeHtml(business.name) : "";
+  const abn = business?.abn ? escapeHtml(business.abn) : "";
+  const timezone = business ? escapeHtml(business.timezone) : "";
+  const gstChecked = business?.gstRegistered ? " checked" : "";
+  const autoSaveChecked = business?.autoSave ? " checked" : "";
+  const dashboardHref = device ? `/dev/dashboard?device=${encodeURIComponent(device)}` : "/dev/dashboard";
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BillSnap — settings</title>
+${PREMIUM_FONTS}
+<style>
+${BASE_STYLES}
+${PREMIUM_STYLES}
+  main { max-width: 640px; margin: 0 auto; padding: 28px 20px 40px; }
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+  .field label { font-size: 12.5px; font-weight: 600; color: var(--text-dim); }
+  .field .text-input { width: 100%; }
+  .field-check { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .field-check input { width: 16px; height: 16px; accent-color: var(--accent-solid); }
+  .field-check label { font-size: 13px; color: var(--text); }
+  .hint { margin-top: 14px; }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="brand-mark">${iconSettings}</span>
+      <div><div class="brand-title">BillSnap</div><div class="brand-sub">Settings</div></div>
+    </div>
+    <nav class="topbar-nav">
+      <a class="nav-link" href="${dashboardHref}">${iconBarChart} Dashboard</a>
+      <a class="nav-link" href="/">${iconHome} Landing</a>
+    </nav>
+  </header>
+  <main>
+    <span class="eyebrow" data-reveal><span class="dot"></span>Company details</span>
+    <section class="panel" data-reveal>
+      <div class="panel-inner">
+        <h2>Basic information</h2>
+        ${
+          business
+            ? `<div class="field"><label for="s-name">Company name</label><input id="s-name" class="text-input" type="text" value="${name}" /></div>
+        <div class="field"><label for="s-abn">ABN</label><input id="s-abn" class="text-input" type="text" placeholder="Not set" value="${abn}" /></div>
+        <div class="field"><label for="s-timezone">Timezone</label><input id="s-timezone" class="text-input" type="text" value="${timezone}" /></div>
+        <div class="field-check"><input id="s-gst" type="checkbox"${gstChecked} /><label for="s-gst">GST registered</label></div>
+        <div class="field-check"><input id="s-autosave" type="checkbox"${autoSaveChecked} /><label for="s-autosave">Auto-save high-confidence bills</label></div>
+        <button class="btn btn-primary" disabled>Save changes</button>`
+            : `<div class="empty">No business found for this device yet — send a bill first.</div>`
+        }
+      </div>
+    </section>
+    <p class="hint">Not wired up yet — these fields aren't saved.</p>
+  </main>
+<script>${PREMIUM_REVEAL_SCRIPT}</script>
+</body>
+</html>`;
 }
