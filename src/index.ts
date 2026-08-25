@@ -35,6 +35,7 @@ import {
   webAppState,
   webManualEntry,
   webPhoto,
+  webSetup,
 } from "./webapp/app";
 import { createD1BusinessStore, type BusinessStore } from "./db/businesses";
 import { createD1DraftStore, type DraftStore } from "./db/drafts";
@@ -219,6 +220,37 @@ export function createApp(deps: AppDeps = {}) {
     const config = loadConfig(c.env);
     const device = c.req.query("device");
     if (!device) return c.json({ error: "device required" }, 400);
+    return c.json(await webAppState(config, aiBinding(c.env), device, cloudBindings(c.env)));
+  });
+  app.post("/app/setup", async (c) => {
+    const config = loadConfig(c.env);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      device?: unknown;
+      name?: unknown;
+      abn?: unknown;
+      gstNumber?: unknown;
+      address?: unknown;
+      phone?: unknown;
+      timezone?: unknown;
+      gstRegistered?: unknown;
+    };
+    if (typeof body.device !== "string" || body.device.trim() === "") {
+      return c.json({ error: "device required" }, 400);
+    }
+    if (typeof body.name !== "string" || body.name.trim() === "") {
+      return c.json({ error: "name required" }, 400);
+    }
+    const device = body.device.trim();
+    const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+    await webSetup(config, aiBinding(c.env), device, cloudBindings(c.env), {
+      name: body.name.trim(),
+      abn: str(body.abn),
+      gstNumber: str(body.gstNumber),
+      address: str(body.address),
+      phone: str(body.phone),
+      timezone: str(body.timezone) || undefined,
+      gstRegistered: body.gstRegistered === true,
+    });
     return c.json(await webAppState(config, aiBinding(c.env), device, cloudBindings(c.env)));
   });
   app.post("/app/photo", async (c) => {

@@ -46,6 +46,40 @@ describe("mobile-first webapp (/app)", () => {
     expect((await post(app, "/app/action", { text: "1" })).status).toBe(400);
   });
 
+  it("gates a new device behind needsSetup until the company-details screen is completed", async () => {
+    const app = createApp();
+    const device = "web_setup_test";
+
+    const before = (await (await app.request(`/app/state?device=${device}`, {}, ENV)).json()) as WebAppState;
+    expect(before.needsSetup).toBe(true);
+
+    // Name is required.
+    expect((await post(app, "/app/setup", { device })).status).toBe(400);
+    expect((await post(app, "/app/setup", { device, name: "" })).status).toBe(400);
+    expect((await post(app, "/app/setup", {})).status).toBe(400);
+
+    const res = await post(app, "/app/setup", {
+      device,
+      name: "Acme Pty Ltd",
+      abn: "12 345 678 901",
+      gstNumber: "GST-9988",
+      address: "1 Example St, Sydney NSW",
+      phone: "0400 000 111",
+      gstRegistered: true,
+    });
+    expect(res.status).toBe(200);
+    const after = (await res.json()) as WebAppState;
+    expect(after.needsSetup).toBe(false);
+
+    // Persisted onto the business the dashboard settings page reads.
+    const devEnv = { DEV_DEMO: "true", DASHBOARD_PASSWORD: "test-password" };
+    const authHeader = { headers: { Authorization: "Basic " + btoa("billsnap:test-password") } };
+    const settingsRes = await app.request(`/dev/dashboard/settings?device=${device}`, authHeader, devEnv);
+    const html = await settingsRes.text();
+    expect(html).toContain("Acme Pty Ltd");
+    expect(html).toContain("GST-9988");
+  });
+
   it("runs photo → confirm → undo through the real router with a device identity", async () => {
     const app = createApp();
     const device = "web_test_1";

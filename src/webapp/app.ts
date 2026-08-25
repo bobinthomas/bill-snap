@@ -160,6 +160,42 @@ export function webDeps(
 
 const lastOcrConfig = new Map<string, string | null>();
 
+export interface WebSetupFields {
+  name: string;
+  abn?: string;
+  gstNumber?: string;
+  address?: string;
+  phone?: string;
+  timezone?: string;
+  gstRegistered?: boolean;
+}
+
+/**
+ * Completes the device's first-run "set up your company" screen: creates the
+ * business (same onboard() every flow uses) and immediately patches in the
+ * details the setup form collected, so `needsSetup` flips false in one step
+ * rather than the bare-defaults business a bill would otherwise auto-create.
+ */
+export async function webSetup(
+  config: AppConfig,
+  ai: WorkersAi | undefined,
+  deviceId: string,
+  bindings: CloudBindings | undefined,
+  fields: WebSetupFields,
+): Promise<void> {
+  const deps = webDeps(config, ai, deviceId, bindings);
+  const { business } = await deps.businesses.onboard(deviceId);
+  await deps.businesses.updateBusiness(business.id, {
+    name: fields.name,
+    abn: fields.abn ?? "",
+    gstNumber: fields.gstNumber ?? "",
+    address: fields.address ?? "",
+    phone: fields.phone ?? "",
+    ...(fields.timezone ? { timezone: fields.timezone } : {}),
+    gstRegistered: fields.gstRegistered ?? true,
+  });
+}
+
 /** Stash uploaded image bytes so the photo flow's downloadMedia finds them. */
 export function stashWebMedia(
   deviceId: string,
@@ -286,6 +322,10 @@ export interface WebAppState {
   ocrRead: OcrRead | null;
   /** §5.8 auto-log opt-out — off forces every bill onto the confirm screen. */
   autoSave: boolean;
+  /** True until this device's company-details setup screen has been
+   *  completed once (no business record exists yet) — the capture UI stays
+   *  gated behind the setup screen while this is true. */
+  needsSetup: boolean;
   draft: WebDraftState | null;
   recent: Array<{
     id: string;
@@ -341,6 +381,7 @@ export async function webAppState(
     lastReply: list.length > 0 ? webifyReply(list[list.length - 1]!) : null,
     ocrRead: ocrReads.get(id) ?? null,
     autoSave: business?.autoSave ?? true,
+    needsSetup: business === null,
     draft: draft
       ? {
           id: draft.id,
@@ -597,6 +638,27 @@ const WEB_APP_PAGE = `<!doctype html>
   .text-entry .hint { text-align: center; font-size: 13px; color: var(--label-secondary); margin-top: 4px; }
 
   .sheet-save { padding: 14px 20px 20px; }
+
+  #setupScreen {
+    display: none; position: fixed; inset: 0; z-index: 30; background: var(--bg);
+    overflow-y: auto; padding: 28px 20px calc(28px + env(safe-area-inset-bottom));
+  }
+  .setup-inner { max-width: 440px; margin: 24px auto 0; }
+  .setup-inner h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin: 14px 0 4px; }
+  .setup-inner > p { font-size: 14px; line-height: 1.5; color: var(--label-secondary); margin: 0 0 24px; }
+  .setup-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .setup-field label { font-size: 12.5px; font-weight: 600; color: var(--label-secondary); }
+  .setup-field input {
+    height: 46px; padding: 0 14px; border-radius: var(--radius-md); background: var(--bg-elevated);
+    border: 1px solid var(--hairline-soft); color: var(--label); font: inherit; font-size: 15px; outline: none;
+  }
+  .setup-field input::placeholder { color: var(--label-tertiary); }
+  .setup-field input:focus { border-color: var(--blue); }
+  .setup-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .setup-check { display: flex; align-items: center; gap: 8px; margin: 4px 0 22px; }
+  .setup-check input { width: 17px; height: 17px; accent-color: var(--blue); }
+  .setup-check label { font-size: 14px; }
+  .setup-error { display: none; color: var(--red); font-size: 13px; margin: -6px 0 14px; }
 </style>
 </head>
 <body>
@@ -663,6 +725,26 @@ const WEB_APP_PAGE = `<!doctype html>
       </div>
     </div>
   </div>
+  <div id="setupScreen">
+    <div class="setup-inner">
+      <span class="eyebrow"><span class="dot"></span>Set up your company</span>
+      <h1>Welcome to BillSnap</h1>
+      <p>Tell us about your company first — these details become the letterhead on your monthly export.</p>
+      <div class="setup-field"><label for="setupName">Company name *</label><input id="setupName" placeholder="e.g. Acme Pty Ltd" /></div>
+      <div class="setup-row">
+        <div class="setup-field"><label for="setupAbn">ABN</label><input id="setupAbn" placeholder="Optional" /></div>
+        <div class="setup-field"><label for="setupGstNumber">GST number</label><input id="setupGstNumber" placeholder="Optional" /></div>
+      </div>
+      <div class="setup-field"><label for="setupAddress">Address</label><input id="setupAddress" placeholder="Optional" /></div>
+      <div class="setup-row">
+        <div class="setup-field"><label for="setupPhone">Phone number</label><input id="setupPhone" placeholder="Optional" /></div>
+        <div class="setup-field"><label for="setupTimezone">Timezone</label><input id="setupTimezone" value="Australia/Sydney" /></div>
+      </div>
+      <div class="setup-check"><input id="setupGst" type="checkbox" checked /><label for="setupGst">GST registered</label></div>
+      <div class="setup-error" id="setupError"></div>
+      <button class="btn-primary" id="setupSave">Get started</button>
+    </div>
+  </div>
 <script>
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -724,12 +806,50 @@ const WEB_APP_PAGE = `<!doctype html>
 
   $("autosaveToggle").onclick = () => act(autoSave ? "autosave off" : "autosave on");
 
+  $("setupSave").onclick = async () => {
+    const name = $("setupName").value.trim();
+    const errEl = $("setupError");
+    if (!name) {
+      errEl.textContent = "Company name is required.";
+      errEl.style.display = "block";
+      return;
+    }
+    errEl.style.display = "none";
+    const btn = $("setupSave");
+    btn.disabled = true;
+    try {
+      const res = await fetch("/app/setup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          device,
+          name,
+          abn: $("setupAbn").value.trim(),
+          gstNumber: $("setupGstNumber").value.trim(),
+          address: $("setupAddress").value.trim(),
+          phone: $("setupPhone").value.trim(),
+          timezone: $("setupTimezone").value.trim(),
+          gstRegistered: $("setupGst").checked,
+        }),
+      });
+      if (!res.ok) throw new Error("save failed");
+      render(await res.json());
+    } catch {
+      errEl.textContent = "Couldn't save — check your connection and try again.";
+      errEl.style.display = "block";
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
   function chip(text, variant) {
     const cls = "chip" + (variant ? " chip-" + variant : "");
     return '<span class="' + cls + '">' + esc(text) + "</span>";
   }
 
   function render(s) {
+    $("setupScreen").style.display = s.needsSetup ? "block" : "none";
+    if (s.needsSetup) return;
     autoSave = s.autoSave;
     const toggle = $("autosaveToggle");
     toggle.innerHTML = (autoSave ? ICON_CHECK : ICON_CROSS) + "<span>Auto-save " + (autoSave ? "On" : "Off") + "</span>";
