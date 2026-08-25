@@ -262,7 +262,7 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
       abn: null,
       autoLogged: false,
     };
-    const csv = billsToCsv([bill]);
+    const csv = billsToCsv(null, [bill]);
     expect(csv.slice(1)).toContain('"Acme, ""Supa"" Co"');
     expect(csv.endsWith("\r\n")).toBe(true);
     expect(exportFileName({ month: "2026-08", category: "utilities" })).toBe("bills-2026-08-utilities.csv");
@@ -316,5 +316,88 @@ describe("dev settings page (/dev/dashboard/settings)", () => {
     expect(html).not.toMatch(/<td>[^<]*[Bb]unnings[^<]*<\/td>/);
     expect(html).toContain(DEMO_PHONE);
     expect(html).toContain("Owner");
+  });
+
+  it("saves company details and shows them back (+ a Saved banner via the redirect flag)", async () => {
+    const deps = demoDeps(loadConfig(ENV));
+    await deps.businesses.onboard(DEMO_PHONE);
+    const app = createApp();
+
+    const body = new URLSearchParams({
+      name: "Acme Pty Ltd",
+      abn: "12 345 678 901",
+      gstNumber: "GST-9988",
+      address: "1 Example St, Sydney NSW",
+      phone: "0400 000 111",
+      timezone: "Australia/Sydney",
+      gstRegistered: "on",
+      // autoSave intentionally omitted — unchecked checkboxes aren't submitted.
+    });
+    const res = await app.request(
+      "/dev/dashboard/settings",
+      { method: "POST", headers: { ...AUTH_HEADER, "content-type": "application/x-www-form-urlencoded" }, body: body.toString() },
+      ENV,
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/dev/dashboard/settings?saved=1");
+
+    const saved = await (await get(app, "/dev/dashboard/settings?saved=1")).text();
+    expect(saved).toContain("Saved.");
+    expect(saved).toContain("Acme Pty Ltd");
+    expect(saved).toContain("GST-9988");
+    expect(saved).toContain("1 Example St, Sydney NSW");
+    expect(saved).toContain("0400 000 111");
+
+    // The plain GET (no ?saved=1) reflects the same data without the banner.
+    const plain = await (await get(app, "/dev/dashboard/settings")).text();
+    expect(plain).not.toContain("Saved.");
+    expect(plain).toContain("Acme Pty Ltd");
+  });
+
+  it("is a no-op when posted for a device with no business yet", async () => {
+    const app = createApp();
+    const res = await app.request(
+      "/dev/dashboard/settings",
+      { method: "POST", headers: { ...AUTH_HEADER, "content-type": "application/x-www-form-urlencoded" }, body: "name=Nope" },
+      ENV,
+    );
+    expect(res.status).toBe(302); // still redirects — nothing to fail on
+    const html = await (await get(app, "/dev/dashboard/settings")).text();
+    expect(html).toContain("No business found for this device");
+  });
+});
+
+describe("CSV export letterhead", () => {
+  beforeEach(() => resetDemo());
+
+  it("prepends the business's company details above the bill table", async () => {
+    const deps = demoDeps(loadConfig(ENV));
+    const { business } = await deps.businesses.onboard(DEMO_PHONE);
+    await deps.businesses.updateBusiness(business.id, {
+      name: "Acme Pty Ltd",
+      abn: "12 345 678 901",
+      gstNumber: "GST-9988",
+    });
+    await logBill("internet 100 telstra gst", new Date());
+
+    const app = createApp();
+    const res = await app.request("/dev/dashboard/export.csv", { headers: AUTH_HEADER }, ENV);
+    const csv = await res.text();
+    const lines = csv.trimEnd().split("\r\n");
+    expect(lines[0]).toBe("Acme Pty Ltd");
+    expect(lines[1]).toBe("ABN: 12 345 678 901");
+    expect(lines[2]).toBe("GST number: GST-9988");
+    expect(lines.some((l) => l.startsWith("Exported: "))).toBe(true);
+    expect(lines).toContain("Logged,Bill date,Vendor,Vendor resolved to,Category,Amount,GST,GST basis,Invoice,ABN,Source,Gate");
+  });
+
+  it("omits the letterhead when no business is onboarded", async () => {
+    await logBill("internet 100 telstra gst", new Date());
+    const app = createApp();
+    const res = await app.request("/dev/dashboard/export.csv", { headers: AUTH_HEADER }, ENV);
+    const csv = await res.text();
+    expect(csv.trimEnd().split("\r\n")[0]).toBe(
+      "Logged,Bill date,Vendor,Vendor resolved to,Category,Amount,GST,GST basis,Invoice,ABN,Source,Gate",
+    );
   });
 });

@@ -25,6 +25,7 @@ import {
   exportFileName,
   renderDashboardPage,
   renderDashboardSettingsPage,
+  saveDashboardSettings,
 } from "./dev/dashboard";
 import { DEMO_MEDIA_ID, demoDeps, demoState, renderDemoPage, setDemoMedia, simulatePhoto, simulateText } from "./dev/demo";
 import {
@@ -154,8 +155,33 @@ export function createApp(deps: AppDeps = {}) {
   });
   app.get("/dev/dashboard/settings", async (c) => {
     const device = c.req.query("device") || undefined;
+    const saved = c.req.query("saved") === "1";
     const settingsData = await dashboardSettingsData(loadConfig(c.env), cloudBindings(c.env), device);
-    return c.html(renderDashboardSettingsPage(settingsData, device));
+    return c.html(renderDashboardSettingsPage(settingsData, device, saved));
+  });
+  app.post("/dev/dashboard/settings", async (c) => {
+    const form = await c.req.formData().catch(() => null);
+    const device = (typeof form?.get("device") === "string" ? (form.get("device") as string) : "") || undefined;
+    const str = (key: string) => {
+      const v = form?.get(key);
+      return typeof v === "string" ? v.trim() : "";
+    };
+    const name = str("name");
+    const timezone = str("timezone");
+    await saveDashboardSettings(loadConfig(c.env), cloudBindings(c.env), device, {
+      ...(name ? { name } : {}),
+      abn: str("abn"),
+      gstNumber: str("gstNumber"),
+      address: str("address"),
+      phone: str("phone"),
+      ...(timezone ? { timezone } : {}),
+      gstRegistered: form?.get("gstRegistered") === "on",
+      autoSave: form?.get("autoSave") === "on",
+    });
+    const params = new URLSearchParams();
+    if (device) params.set("device", device);
+    params.set("saved", "1");
+    return c.redirect(`/dev/dashboard/settings?${params.toString()}`);
   });
   app.get("/dev/dashboard/data", async (c) => {
     const q = c.req.query();
@@ -182,7 +208,7 @@ export function createApp(deps: AppDeps = {}) {
     const data = await dashboardData(loadConfig(c.env), filters, cloudBindings(c.env), q.device || undefined);
     c.header("Content-Type", "text/csv; charset=utf-8");
     c.header("Content-Disposition", `attachment; filename="${exportFileName(filters)}"`);
-    return c.body(billsToCsv(data.rows));
+    return c.body(billsToCsv(data.business, data.rows));
   });
 
   // Mobile-first webapp (the primary flow; WhatsApp is on hold). Not gated on

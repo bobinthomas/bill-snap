@@ -7,7 +7,7 @@
  */
 import type { AppConfig } from "../config";
 import type { CloudBindings } from "../bindings";
-import type { BusinessRecord, MembershipRecord } from "../db/businesses";
+import type { BusinessPatch, BusinessRecord, MembershipRecord } from "../db/businesses";
 import type { DraftRecord } from "../db/drafts";
 import { CATEGORIES, type RegularVendor } from "../extraction/vendor-categories";
 import { mergeKnownVendors } from "../extraction/regex";
@@ -81,6 +81,9 @@ export interface DashboardData {
   /** All bills in the filtered scope (export) — recent is the page's slice. */
   rows: LoggedBill[];
   recent: LoggedBill[];
+  /** The business behind this device/phone, if onboarded — the CSV export
+   *  letterhead comes from here. */
+  business: BusinessRecord | null;
 }
 
 const categoryOf = (b: DraftRecord) => b.extraction?.category_hint?.value ?? "misc";
@@ -99,7 +102,10 @@ export async function dashboardData(
   userPhone: string = DEMO_PHONE,
 ): Promise<DashboardData> {
   const deps = demoDeps(config, undefined, bindings);
-  const bills = await deps.drafts.listLogged(userPhone);
+  const [bills, business] = await Promise.all([
+    deps.drafts.listLogged(userPhone),
+    resolveBusiness(deps, userPhone),
+  ]);
 
   const months = [...new Set(bills.map((b) => b.confirmedAt?.toISOString().slice(0, 7)))]
     .filter((m): m is string => m !== undefined)
@@ -178,6 +184,7 @@ export async function dashboardData(
     filters: { month, category, vendor },
     rows: scoped.map(toLoggedBill),
     recent: scoped.slice(0, 20).map(toLoggedBill),
+    business,
   };
 }
 
@@ -238,9 +245,12 @@ function toLoggedBill(b: DraftRecord): LoggedBill {
  * RFC-4180-style CSV for Excel/accounting tools: UTF-8 BOM (so Excel reads the
  * encoding and the currency symbols), CRLF line endings, fields containing
  * commas/quotes/newlines quoted with doubled quotes. Amounts are fixed to 2dp
- * so spreadsheet apps import them as numbers.
+ * so spreadsheet apps import them as numbers. When a business is onboarded,
+ * a letterhead block (name/ABN/GST number/address/phone) is prepended above
+ * the bill table — this is the "header for my sheets" the company-details
+ * panel on the settings page exists to feed.
  */
-export function billsToCsv(bills: LoggedBill[]): string {
+export function billsToCsv(business: BusinessRecord | null, bills: LoggedBill[]): string {
   const header = [
     "Logged",
     "Bill date",
@@ -270,7 +280,20 @@ export function billsToCsv(bills: LoggedBill[]): string {
     b.gateLevel ?? "",
   ]);
   const line = (row: string[]) => row.map(csvCell).join(",");
-  return "\uFEFF" + [header, ...body].map(line).join("\r\n") + "\r\n";
+  const lead = business ? [...letterheadRows(business), []] : [];
+  return "\uFEFF" + [...lead, header, ...body].map(line).join("\r\n") + "\r\n";
+}
+
+/** Letterhead rows above the bill table \u2014 one label:value per line, blank
+ *  entries omitted so an unfilled company profile doesn't clutter the sheet. */
+function letterheadRows(business: BusinessRecord): string[][] {
+  const rows: string[][] = [[business.name || "Business"]];
+  if (business.abn) rows.push([`ABN: ${business.abn}`]);
+  if (business.gstNumber) rows.push([`GST number: ${business.gstNumber}`]);
+  if (business.address) rows.push([`Address: ${business.address}`]);
+  if (business.phone) rows.push([`Phone: ${business.phone}`]);
+  rows.push([`Exported: ${new Date().toISOString().slice(0, 10)}`]);
+  return rows;
 }
 
 function csvCell(v: string): string {
@@ -543,21 +566,36 @@ export async function dashboardSettingsData(
   return { business, regularVendors, members };
 }
 
+/** Persists the settings page's company-details form. Returns false (no-op)
+ *  when the device/phone has no business yet — nothing to save. */
+export async function saveDashboardSettings(
+  config: AppConfig,
+  bindings: CloudBindings | undefined,
+  userPhone: string = DEMO_PHONE,
+  patch: BusinessPatch,
+): Promise<boolean> {
+  const deps = demoDeps(config, undefined, bindings);
+  const business = await resolveBusiness(deps, userPhone);
+  if (!business) return false;
+  await deps.businesses.updateBusiness(business.id, patch);
+  return true;
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
-function withDevice(path: string, device?: string): string {
+export function withDevice(path: string, device?: string): string {
   return device ? `${path}?device=${encodeURIComponent(device)}` : path;
 }
 
 /**
- * Settings page — company profile, regular vendors, team, spending
- * categories, and a data-export shortcut. Pre-filled and read-only for now:
- * not wired to a save endpoint yet (BusinessPatch/updateBusiness already
- * support every field shown here in db/businesses.ts for when it is).
+ * Settings page — company profile (the letterhead used on the CSV export),
+ * regular vendors, team, spending categories, and a data-export shortcut.
+ * Only the company-details form is wired to a save endpoint (POST back to
+ * this same route); the rest are read-only summaries derived from bills.
  */
-export function renderDashboardSettingsPage(data: DashboardSettingsData, device?: string): string {
+export function renderDashboardSettingsPage(data: DashboardSettingsData, device?: string, saved?: boolean): string {
   const { business, regularVendors, members } = data;
   const field = (v: string | null) => (v ? escapeHtml(v) : "");
   const gstChecked = business?.gstRegistered ? " checked" : "";
@@ -639,19 +677,24 @@ ${PREMIUM_STYLES}
         <h2>Basic information</h2>
         ${
           business
-            ? `<div class="field"><label for="s-name">Company name</label><input id="s-name" class="text-input" type="text" value="${field(business.name)}" /></div>
+            ? `${saved ? `<div class="notice notice-success" data-reveal><span class="notice-icon">${iconCheckCircle}</span><span>Saved.</span></div>` : ""}
+        <form method="post" action="${withDevice("/dev/dashboard/settings", device)}">
+          ${device ? `<input type="hidden" name="device" value="${escapeHtml(device)}" />` : ""}
+          <div class="field"><label for="s-name">Company name</label><input id="s-name" name="name" class="text-input" type="text" value="${field(business.name)}" /></div>
         <div class="field-row">
-          <div class="field"><label for="s-abn">ABN</label><input id="s-abn" class="text-input" type="text" placeholder="Not set" value="${field(business.abn)}" /></div>
-          <div class="field"><label for="s-gst-number">GST number</label><input id="s-gst-number" class="text-input" type="text" placeholder="Not set" value="${field(business.gstNumber)}" /></div>
+          <div class="field"><label for="s-abn">ABN</label><input id="s-abn" name="abn" class="text-input" type="text" placeholder="Not set" value="${field(business.abn)}" /></div>
+          <div class="field"><label for="s-gst-number">GST number</label><input id="s-gst-number" name="gstNumber" class="text-input" type="text" placeholder="Not set" value="${field(business.gstNumber)}" /></div>
         </div>
-        <div class="field"><label for="s-address">Address</label><input id="s-address" class="text-input" type="text" placeholder="Not set" value="${field(business.address)}" /></div>
+        <div class="field"><label for="s-address">Address</label><input id="s-address" name="address" class="text-input" type="text" placeholder="Not set" value="${field(business.address)}" /></div>
         <div class="field-row">
-          <div class="field"><label for="s-phone">Phone number</label><input id="s-phone" class="text-input" type="text" placeholder="Not set" value="${field(business.phone)}" /></div>
-          <div class="field"><label for="s-timezone">Timezone</label><input id="s-timezone" class="text-input" type="text" value="${field(business.timezone)}" /></div>
+          <div class="field"><label for="s-phone">Phone number</label><input id="s-phone" name="phone" class="text-input" type="text" placeholder="Not set" value="${field(business.phone)}" /></div>
+          <div class="field"><label for="s-timezone">Timezone</label><input id="s-timezone" name="timezone" class="text-input" type="text" value="${field(business.timezone)}" /></div>
         </div>
-        <div class="field-check"><input id="s-gst" type="checkbox"${gstChecked} /><label for="s-gst">GST registered</label></div>
-        <div class="field-check"><input id="s-autosave" type="checkbox"${autoSaveChecked} /><label for="s-autosave">Auto-save high-confidence bills</label></div>
-        <button class="btn btn-primary" disabled>Save changes</button>`
+        <div class="field-check"><input id="s-gst" name="gstRegistered" type="checkbox"${gstChecked} /><label for="s-gst">GST registered</label></div>
+        <div class="field-check"><input id="s-autosave" name="autoSave" type="checkbox"${autoSaveChecked} /><label for="s-autosave">Auto-save high-confidence bills</label></div>
+        <button class="btn btn-primary" type="submit">Save changes</button>
+        </form>
+        <p class="hint">Used as the letterhead on your CSV export.</p>`
             : `<div class="empty">No business found for this device yet — send a bill first.</div>`
         }
       </div>
@@ -692,7 +735,7 @@ ${PREMIUM_STYLES}
     </section>`
         : ""
     }
-    <p class="hint">Not wired up yet — these fields aren't saved.</p>
+    ${business ? `<p class="hint">Regular vendors, team, and spending categories are generated automatically from your logged bills.</p>` : ""}
   </main>
 <script>${PREMIUM_REVEAL_SCRIPT}</script>
 </body>
