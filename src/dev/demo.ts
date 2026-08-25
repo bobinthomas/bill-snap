@@ -16,7 +16,7 @@ import { createD1TransactionStore, type TransactionStore } from "../db/transacti
 import { createD1UserStore, type UserStore } from "../db/users";
 import { createExtractionService, type ExtractionOutcome, type ExtractionService } from "../extraction/pipeline";
 import { mergeKnownVendors } from "../extraction/regex";
-import { aggregateVendorCategoryHistory } from "../extraction/vendor-categories";
+import { aggregateRegularVendors, aggregateVendorCategoryHistory } from "../extraction/vendor-categories";
 import type { WorkersAi } from "../extraction/workers-ai";
 import type { DownloadedMedia, Messenger } from "../messaging/whatsapp";
 import { createR2BillStorage, type BillStorage } from "../storage/bills";
@@ -136,6 +136,17 @@ export function demoDeps(config: AppConfig, ai?: WorkersAi, bindings?: CloudBind
             return vendor && category ? [{ vendor, category }] : [];
           });
           return aggregateVendorCategoryHistory(rows);
+        },
+        async getRegularVendors() {
+          // listLogged is already newest-first (confirmedAt desc) — matches
+          // aggregateRegularVendors' "first row per vendor = display casing" rule.
+          const logged = await drafts.listLogged(DEMO_PHONE, 500);
+          const rows = logged.flatMap((d) => {
+            const vendor = d.extraction?.vendor.value;
+            const category = d.extraction?.category_hint.value;
+            return vendor && category ? [{ vendor, category }] : [];
+          });
+          return aggregateRegularVendors(rows);
         },
       };
   const inner = createExtractionService(config, ai);

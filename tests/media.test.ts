@@ -56,9 +56,12 @@ function makeDeps(outcome: ExtractionOutcome, send: MockMessenger) {
     id: "biz-1",
     name: "My Business",
     abn: null,
+    gstNumber: null,
     timezone: "Australia/Sydney",
     gstRegistered: true,
     autoSave: true,
+    address: null,
+    phone: null,
   });
   const extraction = new RecordingExtraction(outcome);
   const storage = new FakeBillStorage();
@@ -158,9 +161,12 @@ describe("M8 media download (§5.6)", () => {
       id: "biz-1",
       name: "My Business",
       abn: null,
+      gstNumber: null,
       timezone: "Australia/Sydney",
       gstRegistered: true,
       autoSave: true,
+      address: null,
+      phone: null,
     });
     const deps = {
       users,

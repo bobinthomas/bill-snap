@@ -103,9 +103,12 @@ describe("onboarding (§4.5)", () => {
       id: business!.id,
       name: "My Business",
       abn: null,
+      gstNumber: null,
       timezone: "Australia/Sydney",
       gstRegistered: true,
       autoSave: true,
+      address: null,
+      phone: null,
     });
     expect(send.sent).toHaveLength(1);
     expect(send.sent[0]?.text).toBe(WELCOME_TEXT);

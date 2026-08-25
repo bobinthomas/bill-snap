@@ -105,6 +105,37 @@ describe("BusinessStore (D1)", () => {
     expect((await store.findBusiness(onboarded.business.id))?.name).toBe("Café");
   });
 
+  it("updateBusiness patches the company-profile fields (abn/gstNumber/address/phone)", async () => {
+    const db = createTestD1();
+    const store = createD1BusinessStore(db);
+    const onboarded = await store.onboard(PHONE);
+    expect(onboarded.business).toMatchObject({ abn: null, gstNumber: null, address: null, phone: null });
+
+    const updated = await store.updateBusiness(onboarded.business.id, {
+      abn: "51 824 753 556",
+      gstNumber: "GST-12345",
+      address: "1 Example St, Sydney NSW 2000",
+      phone: "+61 2 9000 0000",
+    });
+    expect(updated).toMatchObject({
+      abn: "51 824 753 556",
+      gstNumber: "GST-12345",
+      address: "1 Example St, Sydney NSW 2000",
+      phone: "+61 2 9000 0000",
+    });
+    expect(await store.findBusiness(onboarded.business.id)).toMatchObject(updated);
+  });
+
+  it("listMembers returns the owner membership from onboard, newest last", async () => {
+    const db = createTestD1();
+    const store = createD1BusinessStore(db);
+    const onboarded = await store.onboard(PHONE);
+
+    const members = await store.listMembers(onboarded.business.id);
+    expect(members).toHaveLength(1);
+    expect(members[0]).toMatchObject({ userPhone: PHONE, role: "owner" });
+  });
+
   it("setup step lives on users.setup_step", async () => {
     const db = createTestD1();
     const store = createD1BusinessStore(db);

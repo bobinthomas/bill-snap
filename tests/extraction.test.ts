@@ -12,7 +12,7 @@ import {
   round2,
   validateAbn,
 } from "../src/extraction/validate";
-import { fillCategoryHint, type VendorCategorySuggestion } from "../src/extraction/vendor-categories";
+import { aggregateRegularVendors, fillCategoryHint, type VendorCategorySuggestion } from "../src/extraction/vendor-categories";
 import type { BillExtraction } from "../src/types";
 
 const CONFIG = loadConfig({});
@@ -716,6 +716,52 @@ describe("fillCategoryHint (procedural layer — episodic > semantic > untouched
   it("leaves category_hint null when there's no vendor to look up", () => {
     const result = fillCategoryHint(ext({ vendor: { value: null, confidence: 0 } }), new Map());
     expect(result.category_hint.value).toBeNull();
+  });
+});
+
+describe("aggregateRegularVendors (settings page — display-oriented, distinct from the episodic auto-fill path)", () => {
+  it("labels the majority category once a vendor's share is at least 50%", () => {
+    const rows = [
+      { vendor: "Telstra", category: "utilities" },
+      { vendor: "Telstra", category: "utilities" },
+      { vendor: "telstra", category: "misc" }, // newest-first order is caller's job; casing/order don't matter for the majority calc
+    ];
+    const result = aggregateRegularVendors(rows);
+    expect(result).toEqual([{ vendor: "Telstra", billCount: 3, category: "utilities", categoryConfidence: 2 / 3 }]);
+  });
+
+  it("labels a vendor 'mixed' when no category reaches the 50% share", () => {
+    const rows = [
+      { vendor: "Acme Co", category: "utilities" },
+      { vendor: "Acme Co", category: "misc" },
+    ];
+    const result = aggregateRegularVendors(rows);
+    expect(result[0]).toMatchObject({ vendor: "Acme Co", billCount: 2, category: "mixed" });
+  });
+
+  it("drops vendors under the minimum bill count", () => {
+    const rows = [{ vendor: "One-off Cafe", category: "misc" }];
+    expect(aggregateRegularVendors(rows)).toEqual([]);
+    expect(aggregateRegularVendors(rows, 1)).toHaveLength(1);
+  });
+
+  it("uses the FIRST row's casing per vendor as the display name (caller sorts newest-first)", () => {
+    const rows = [
+      { vendor: "TELSTRA", category: "utilities" }, // newest
+      { vendor: "Telstra", category: "utilities" },
+    ];
+    expect(aggregateRegularVendors(rows)[0]?.vendor).toBe("TELSTRA");
+  });
+
+  it("sorts by bill count descending", () => {
+    const rows = [
+      { vendor: "Bunnings", category: "inventory" },
+      { vendor: "Bunnings", category: "inventory" },
+      { vendor: "Origin Energy", category: "utilities" },
+      { vendor: "Origin Energy", category: "utilities" },
+      { vendor: "Origin Energy", category: "utilities" },
+    ];
+    expect(aggregateRegularVendors(rows).map((v) => v.vendor)).toEqual(["Origin Energy", "Bunnings"]);
   });
 });
 

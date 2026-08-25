@@ -6,6 +6,7 @@ import type {
   BusinessPatch,
   BusinessRecord,
   BusinessStore,
+  MembershipRecord,
   OnboardedUser,
   SetupStep,
 } from "../src/db/businesses";
@@ -20,7 +21,7 @@ import {
 } from "../src/db/drafts";
 import type { TransactionStore } from "../src/db/transactions";
 import type { UserRecord, UserStore } from "../src/db/users";
-import type { VendorCategorySuggestion } from "../src/extraction/vendor-categories";
+import type { RegularVendor, VendorCategorySuggestion } from "../src/extraction/vendor-categories";
 import type { BillStorage, UploadBillOptions, UploadedBill } from "../src/storage/bills";
 import type { BillExtraction } from "../src/types";
 
@@ -114,6 +115,7 @@ export class FakeUserStore implements UserStore {
 export class FakeBusinessStore implements BusinessStore {
   private readonly businesses = new Map<string, BusinessRecord>();
   private readonly steps = new Map<string, SetupStep>();
+  private readonly memberships = new Map<string, MembershipRecord[]>();
   private seq = 0;
 
   constructor(private readonly users: FakeUserStore) {}
@@ -129,13 +131,17 @@ export class FakeBusinessStore implements BusinessStore {
       id,
       name: "My Business",
       abn: null,
+      gstNumber: null,
       timezone: "Australia/Sydney",
       gstRegistered: true,
       autoSave: true,
+      address: null,
+      phone: null,
     };
     this.businesses.set(id, business);
     const user: UserRecord = { phoneNumber, businessId: id, createdAt: new Date() };
     this.users.add(user);
+    this.addMember(id, { userPhone: phoneNumber, role: "owner", createdAt: new Date() });
     return { user, business };
   }
 
@@ -163,6 +169,17 @@ export class FakeBusinessStore implements BusinessStore {
     if (step === null) this.steps.delete(phoneNumber);
     else this.steps.set(phoneNumber, step);
   }
+
+  async listMembers(businessId: string): Promise<MembershipRecord[]> {
+    return this.memberships.get(businessId) ?? [];
+  }
+
+  /** Test helper: register a membership row (owner rows are added by onboard()). */
+  addMember(businessId: string, member: MembershipRecord): void {
+    const list = this.memberships.get(businessId) ?? [];
+    list.push(member);
+    this.memberships.set(businessId, list);
+  }
 }
 
 /** Vendor->category history double — empty by default (unseeded tests just
@@ -170,9 +187,14 @@ export class FakeBusinessStore implements BusinessStore {
  *  `history` directly. */
 export class FakeTransactionStore implements TransactionStore {
   history = new Map<string, VendorCategorySuggestion>();
+  regularVendors: RegularVendor[] = [];
 
   async getVendorCategoryHistory(): Promise<Map<string, VendorCategorySuggestion>> {
     return this.history;
+  }
+
+  async getRegularVendors(): Promise<RegularVendor[]> {
+    return this.regularVendors;
   }
 }
 

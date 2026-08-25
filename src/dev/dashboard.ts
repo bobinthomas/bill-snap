@@ -7,8 +7,9 @@
  */
 import type { AppConfig } from "../config";
 import type { CloudBindings } from "../bindings";
-import type { BusinessRecord } from "../db/businesses";
+import type { BusinessRecord, MembershipRecord } from "../db/businesses";
 import type { DraftRecord } from "../db/drafts";
+import { CATEGORIES, type RegularVendor } from "../extraction/vendor-categories";
 import { mergeKnownVendors } from "../extraction/regex";
 import { resolveBusiness } from "../flows/helpers";
 import { demoDeps, DEMO_PHONE } from "./demo";
@@ -518,32 +519,77 @@ export function renderDashboardPage(): string {
   return DASHBOARD_PAGE;
 }
 
-/** Fetches the business behind `device` (default the demo phone) for the settings page. */
-export async function dashboardBusiness(
+export interface DashboardSettingsData {
+  business: BusinessRecord | null;
+  regularVendors: RegularVendor[];
+  members: MembershipRecord[];
+}
+
+/** Fetches everything the settings page shows for the business behind
+ *  `device` (default the demo phone): the business record, its regular
+ *  vendors (episodic memory, §extraction/vendor-categories), and its team. */
+export async function dashboardSettingsData(
   config: AppConfig,
   bindings?: CloudBindings,
   userPhone: string = DEMO_PHONE,
-): Promise<BusinessRecord | null> {
+): Promise<DashboardSettingsData> {
   const deps = demoDeps(config, undefined, bindings);
-  return resolveBusiness(deps, userPhone);
+  const business = await resolveBusiness(deps, userPhone);
+  if (!business) return { business: null, regularVendors: [], members: [] };
+  const [regularVendors, members] = await Promise.all([
+    deps.transactions.getRegularVendors(business.id),
+    deps.businesses.listMembers(business.id),
+  ]);
+  return { business, regularVendors, members };
 }
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
+function withDevice(path: string, device?: string): string {
+  return device ? `${path}?device=${encodeURIComponent(device)}` : path;
+}
+
 /**
- * Settings page — basic company info, pre-filled and read for now. Not wired
- * to a save endpoint yet (BusinessPatch/updateBusiness already exist in
- * db/businesses.ts for when it is).
+ * Settings page — company profile, regular vendors, team, spending
+ * categories, and a data-export shortcut. Pre-filled and read-only for now:
+ * not wired to a save endpoint yet (BusinessPatch/updateBusiness already
+ * support every field shown here in db/businesses.ts for when it is).
  */
-export function renderDashboardSettingsPage(business: BusinessRecord | null, device?: string): string {
-  const name = business ? escapeHtml(business.name) : "";
-  const abn = business?.abn ? escapeHtml(business.abn) : "";
-  const timezone = business ? escapeHtml(business.timezone) : "";
+export function renderDashboardSettingsPage(data: DashboardSettingsData, device?: string): string {
+  const { business, regularVendors, members } = data;
+  const field = (v: string | null) => (v ? escapeHtml(v) : "");
   const gstChecked = business?.gstRegistered ? " checked" : "";
   const autoSaveChecked = business?.autoSave ? " checked" : "";
-  const dashboardHref = device ? `/dev/dashboard?device=${encodeURIComponent(device)}` : "/dev/dashboard";
+  const dashboardHref = withDevice("/dev/dashboard", device);
+  const exportHref = withDevice("/dev/dashboard/export.csv", device);
+
+  const vendorRows = regularVendors.length
+    ? regularVendors
+        .map((v) => {
+          const categoryChip =
+            v.category === "mixed"
+              ? `<span class="chip chip-warn">Mixed</span>`
+              : `<span class="chip chip-accent">${escapeHtml(v.category)}</span>`;
+          return `<tr><td>${escapeHtml(v.vendor)}</td><td class="num">${v.billCount}</td><td>${categoryChip}</td></tr>`;
+        })
+        .join("")
+    : "";
+
+  const memberRows = members.length
+    ? members
+        .map((m) => {
+          const roleChip =
+            m.role === "owner"
+              ? `<span class="chip chip-accent">Owner</span>`
+              : `<span class="chip">Staff</span>`;
+          return `<tr><td>${escapeHtml(m.userPhone)}</td><td>${roleChip}</td><td>${m.createdAt.toISOString().slice(0, 10)}</td></tr>`;
+        })
+        .join("")
+    : "";
+
+  const categoryChips = CATEGORIES.map((c) => `<span class="chip">${escapeHtml(c)}</span>`).join("");
 
   return `<!doctype html>
 <html lang="en">
@@ -555,14 +601,24 @@ ${PREMIUM_FONTS}
 <style>
 ${BASE_STYLES}
 ${PREMIUM_STYLES}
-  main { max-width: 640px; margin: 0 auto; padding: 28px 20px 40px; }
+  main { max-width: 720px; margin: 0 auto; padding: 28px 20px 40px; }
+  .panel + .panel, section.panel ~ section.panel { margin-top: 14px; }
   .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
   .field label { font-size: 12.5px; font-weight: 600; color: var(--text-dim); }
   .field .text-input { width: 100%; }
   .field-check { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
   .field-check input { width: 16px; height: 16px; accent-color: var(--accent-solid); }
   .field-check label { font-size: 13px; color: var(--text); }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 560px) { .field-row { grid-template-columns: 1fr; } }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
   .hint { margin-top: 14px; }
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
+  th { color: var(--text-faint); font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; }
+  tbody tr:hover td { background: var(--surface-2); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
@@ -583,9 +639,16 @@ ${PREMIUM_STYLES}
         <h2>Basic information</h2>
         ${
           business
-            ? `<div class="field"><label for="s-name">Company name</label><input id="s-name" class="text-input" type="text" value="${name}" /></div>
-        <div class="field"><label for="s-abn">ABN</label><input id="s-abn" class="text-input" type="text" placeholder="Not set" value="${abn}" /></div>
-        <div class="field"><label for="s-timezone">Timezone</label><input id="s-timezone" class="text-input" type="text" value="${timezone}" /></div>
+            ? `<div class="field"><label for="s-name">Company name</label><input id="s-name" class="text-input" type="text" value="${field(business.name)}" /></div>
+        <div class="field-row">
+          <div class="field"><label for="s-abn">ABN</label><input id="s-abn" class="text-input" type="text" placeholder="Not set" value="${field(business.abn)}" /></div>
+          <div class="field"><label for="s-gst-number">GST number</label><input id="s-gst-number" class="text-input" type="text" placeholder="Not set" value="${field(business.gstNumber)}" /></div>
+        </div>
+        <div class="field"><label for="s-address">Address</label><input id="s-address" class="text-input" type="text" placeholder="Not set" value="${field(business.address)}" /></div>
+        <div class="field-row">
+          <div class="field"><label for="s-phone">Phone number</label><input id="s-phone" class="text-input" type="text" placeholder="Not set" value="${field(business.phone)}" /></div>
+          <div class="field"><label for="s-timezone">Timezone</label><input id="s-timezone" class="text-input" type="text" value="${field(business.timezone)}" /></div>
+        </div>
         <div class="field-check"><input id="s-gst" type="checkbox"${gstChecked} /><label for="s-gst">GST registered</label></div>
         <div class="field-check"><input id="s-autosave" type="checkbox"${autoSaveChecked} /><label for="s-autosave">Auto-save high-confidence bills</label></div>
         <button class="btn btn-primary" disabled>Save changes</button>`
@@ -593,6 +656,42 @@ ${PREMIUM_STYLES}
         }
       </div>
     </section>
+    ${
+      business
+        ? `<section class="panel" data-reveal>
+      <div class="panel-inner">
+        <h2>Regular vendors</h2>
+        ${
+          vendorRows
+            ? `<div class="table-scroll"><table><thead><tr><th>Vendor</th><th>Bills logged</th><th>Category</th></tr></thead><tbody>${vendorRows}</tbody></table></div>`
+            : `<div class="empty">No regular vendors yet — repeat vendors appear here after 2+ bills.</div>`
+        }
+      </div>
+    </section>
+    <section class="panel" data-reveal>
+      <div class="panel-inner">
+        <h2>Team members</h2>
+        ${
+          memberRows
+            ? `<div class="table-scroll"><table><thead><tr><th>Phone</th><th>Role</th><th>Joined</th></tr></thead><tbody>${memberRows}</tbody></table></div>`
+            : `<div class="empty">No team members found.</div>`
+        }
+      </div>
+    </section>
+    <section class="panel" data-reveal>
+      <div class="panel-inner">
+        <h2>Spending categories</h2>
+        <div class="chip-row">${categoryChips}</div>
+      </div>
+    </section>
+    <section class="panel" data-reveal>
+      <div class="panel-inner">
+        <h2>Data export</h2>
+        <a class="btn btn-ghost" href="${exportHref}"><span class="icon-chip">${iconDownload}</span><span>Export all bills (CSV)</span></a>
+      </div>
+    </section>`
+        : ""
+    }
     <p class="hint">Not wired up yet — these fields aren't saved.</p>
   </main>
 <script>${PREMIUM_REVEAL_SCRIPT}</script>

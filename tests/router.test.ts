@@ -77,9 +77,12 @@ describe("route (§5.6)", () => {
       id: "biz-1",
       name: "My Business",
       abn: null,
+      gstNumber: null,
       timezone: "Australia/Sydney",
       gstRegistered: true,
       autoSave: true,
+      address: null,
+      phone: null,
     });
     const drafts = new FakeDraftStore();
     const deps = {

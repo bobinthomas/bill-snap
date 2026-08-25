@@ -5,8 +5,15 @@
  *  of the vendor->category memory feature — reads a business's own confirmed
  *  history and hands it to `aggregateVendorCategoryHistory` (pure, D1-free)
  *  so the pipeline can pre-fill a bill's category from what this business has
- *  actually done before. */
-import { aggregateVendorCategoryHistory, type VendorCategorySuggestion } from "../extraction/vendor-categories";
+ *  actually done before. `getRegularVendors` is the display-oriented sibling
+ *  for the settings page (§dev/dashboard) — see aggregateRegularVendors for
+ *  why it's a separate path rather than reusing the extraction-confidence one. */
+import {
+  aggregateRegularVendors,
+  aggregateVendorCategoryHistory,
+  type RegularVendor,
+  type VendorCategorySuggestion,
+} from "../extraction/vendor-categories";
 import type { D1Like } from "./d1";
 
 export interface TransactionStore {
@@ -15,6 +22,9 @@ export interface TransactionStore {
    *  business has no qualifying history yet (falls through to the semantic
    *  dictionary at the caller). */
   getVendorCategoryHistory(businessId: string): Promise<Map<string, VendorCategorySuggestion>>;
+  /** Vendors seen often enough to count as "regular", newest-billing casing,
+   *  sorted by frequency — for the settings page. */
+  getRegularVendors(businessId: string): Promise<RegularVendor[]>;
 }
 
 interface VendorCategoryRow {
@@ -39,5 +49,18 @@ class D1TransactionStore implements TransactionStore {
       .bind(businessId)
       .all<VendorCategoryRow>();
     return aggregateVendorCategoryHistory(results);
+  }
+
+  async getRegularVendors(businessId: string): Promise<RegularVendor[]> {
+    const { results } = await this.db
+      .prepare(
+        `select vendor, category
+         from transactions
+         where business_id = ? and status in ('logged', 'paid') and vendor is not null
+         order by created_at desc`,
+      )
+      .bind(businessId)
+      .all<VendorCategoryRow>();
+    return aggregateRegularVendors(results);
   }
 }

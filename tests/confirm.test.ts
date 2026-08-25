@@ -427,8 +427,11 @@ describe("autosave on/off (§5.8 opt-out)", () => {
       id: "biz-1",
       name: "My Business",
       abn: null,
+      gstNumber: null,
       timezone: "Australia/Sydney",
       gstRegistered: true,
+      address: null,
+      phone: null,
       autoSave: true,
     });
     const reply = await handleCommand(textEvent("autosave off"), {
@@ -447,8 +450,11 @@ describe("autosave on/off (§5.8 opt-out)", () => {
       id: "biz-1",
       name: "My Business",
       abn: null,
+      gstNumber: null,
       timezone: "Australia/Sydney",
       gstRegistered: true,
+      address: null,
+      phone: null,
       autoSave: false,
     });
     const reply = await handleCommand(textEvent("autosave on"), {

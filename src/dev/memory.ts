@@ -11,6 +11,7 @@ import type {
   BusinessPatch,
   BusinessRecord,
   BusinessStore,
+  MembershipRecord,
   OnboardedUser,
   SetupStep,
 } from "../db/businesses";
@@ -76,6 +77,7 @@ class MemoryUserStore implements UserStore {
 class MemoryBusinessStore implements BusinessStore {
   private readonly businesses = new Map<string, BusinessRecord>();
   private readonly steps = new Map<string, SetupStep>();
+  private readonly memberships = new Map<string, MembershipRecord[]>();
   private seq = 0;
 
   constructor(private readonly users: MemoryUserStore) {}
@@ -90,13 +92,19 @@ class MemoryBusinessStore implements BusinessStore {
       id: `biz-${++this.seq}`,
       name: "My Business",
       abn: null,
+      gstNumber: null,
       timezone: "Australia/Sydney",
       gstRegistered: true,
       autoSave: true,
+      address: null,
+      phone: null,
     };
     this.businesses.set(business.id, business);
     const user: UserRecord = { phoneNumber, businessId: business.id, createdAt: new Date() };
     this.users.register(user);
+    const members = this.memberships.get(business.id) ?? [];
+    members.push({ userPhone: phoneNumber, role: "owner", createdAt: new Date() });
+    this.memberships.set(business.id, members);
     return { user, business };
   }
 
@@ -118,6 +126,10 @@ class MemoryBusinessStore implements BusinessStore {
   async setSetupStep(phoneNumber: string, step: SetupStep | null): Promise<void> {
     if (step === null) this.steps.delete(phoneNumber);
     else this.steps.set(phoneNumber, step);
+  }
+
+  async listMembers(businessId: string): Promise<MembershipRecord[]> {
+    return this.memberships.get(businessId) ?? [];
   }
 }
 

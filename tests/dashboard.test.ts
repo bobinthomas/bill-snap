@@ -283,3 +283,38 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
     expect(undone.totals.count).toBe(0);
   });
 });
+
+describe("dev settings page (/dev/dashboard/settings)", () => {
+  beforeEach(() => resetDemo());
+
+  it("returns 404 when DEV_DEMO is not set", async () => {
+    const app = createApp();
+    const res = await app.request("/dev/dashboard/settings", {}, {});
+    expect(res.status).toBe(404);
+  });
+
+  it("shows a business-not-found state before the demo phone is onboarded", async () => {
+    const app = createApp();
+    const html = await (await get(app, "/dev/dashboard/settings")).text();
+    expect(html).toContain("No business found for this device");
+  });
+
+  it("shows company info, regular vendors (2+ bills), and the owner in team members", async () => {
+    const deps = demoDeps(loadConfig(ENV));
+    await deps.businesses.onboard(DEMO_PHONE);
+    // Two Telstra bills clear the "regular vendor" threshold; a single
+    // Bunnings bill should NOT appear (matches aggregateRegularVendors' bar).
+    await logBill("internet 100 telstra gst", new Date());
+    await logBill("internet 120 telstra gst", new Date(Date.now() - 86_400_000));
+    await logBill("materials 50 bunnings gst", new Date(Date.now() - 2 * 86_400_000));
+
+    const app = createApp();
+    const html = await (await get(app, "/dev/dashboard/settings")).text();
+
+    expect(html).toContain("My Business");
+    expect(html).toMatch(/<td>[^<]*[Tt]elstra[^<]*<\/td><td class="num">2<\/td>/);
+    expect(html).not.toMatch(/<td>[^<]*[Bb]unnings[^<]*<\/td>/);
+    expect(html).toContain(DEMO_PHONE);
+    expect(html).toContain("Owner");
+  });
+});

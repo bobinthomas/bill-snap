@@ -19,10 +19,15 @@ export interface BusinessRecord {
   id: string;
   name: string;
   abn: string | null;
+  /** Separate from the ABN — some businesses register a distinct GST number. */
+  gstNumber: string | null;
   timezone: string;
   gstRegistered: boolean;
   /** Auto-log High-confidence extractions (§5.8); owner can force always-confirm. */
   autoSave: boolean;
+  address: string | null;
+  /** Business contact number — distinct from users.phone_number (the WhatsApp/webapp identity). */
+  phone: string | null;
 }
 
 export type SetupStep = "name" | "timezone" | "gst";
@@ -34,9 +39,20 @@ export interface OnboardedUser {
 
 export interface BusinessPatch {
   name?: string;
+  abn?: string;
+  gstNumber?: string;
   timezone?: string;
   gstRegistered?: boolean;
   autoSave?: boolean;
+  address?: string;
+  phone?: string;
+}
+
+/** A business's owner/staff roster (§5.5 multi-user). */
+export interface MembershipRecord {
+  userPhone: string;
+  role: "owner" | "staff";
+  createdAt: Date;
 }
 
 export interface BusinessStore {
@@ -46,15 +62,26 @@ export interface BusinessStore {
   updateBusiness(businessId: string, patch: BusinessPatch): Promise<BusinessRecord>;
   getSetupStep(phoneNumber: string): Promise<SetupStep | null>;
   setSetupStep(phoneNumber: string, step: SetupStep | null): Promise<void>;
+  /** Owner + staff roster for the settings page's Team members section. */
+  listMembers(businessId: string): Promise<MembershipRecord[]>;
 }
 
 interface BusinessRow {
   id: string;
   name: string;
   abn: string | null;
+  gst_number: string | null;
   timezone: string;
   gst_registered: number;
   auto_save: number;
+  address: string | null;
+  phone: string | null;
+  created_at: string;
+}
+
+interface MembershipRow {
+  user_phone: string;
+  role: "owner" | "staff";
   created_at: string;
 }
 
@@ -111,7 +138,7 @@ class D1BusinessStore implements BusinessStore {
   async findBusiness(businessId: string): Promise<BusinessRecord | null> {
     const row = await this.db
       .prepare(
-        "select id, name, abn, timezone, gst_registered, auto_save, created_at from businesses where id = ?",
+        "select id, name, abn, gst_number, timezone, gst_registered, auto_save, address, phone, created_at from businesses where id = ?",
       )
       .bind(businessId)
       .first<BusinessRow>();
@@ -125,6 +152,14 @@ class D1BusinessStore implements BusinessStore {
       sets.push("name = ?");
       values.push(patch.name);
     }
+    if (patch.abn !== undefined) {
+      sets.push("abn = ?");
+      values.push(patch.abn);
+    }
+    if (patch.gstNumber !== undefined) {
+      sets.push("gst_number = ?");
+      values.push(patch.gstNumber);
+    }
     if (patch.timezone !== undefined) {
       sets.push("timezone = ?");
       values.push(patch.timezone);
@@ -137,6 +172,14 @@ class D1BusinessStore implements BusinessStore {
       sets.push("auto_save = ?");
       values.push(patch.autoSave ? 1 : 0);
     }
+    if (patch.address !== undefined) {
+      sets.push("address = ?");
+      values.push(patch.address);
+    }
+    if (patch.phone !== undefined) {
+      sets.push("phone = ?");
+      values.push(patch.phone);
+    }
     if (sets.length === 0) {
       const existing = await this.findBusiness(businessId);
       if (!existing) throw new Error(`updateBusiness: business ${businessId} not found`);
@@ -145,12 +188,20 @@ class D1BusinessStore implements BusinessStore {
 
     const row = await this.db
       .prepare(
-        `update businesses set ${sets.join(", ")} where id = ? returning id, name, abn, timezone, gst_registered, auto_save, created_at`,
+        `update businesses set ${sets.join(", ")} where id = ? returning id, name, abn, gst_number, timezone, gst_registered, auto_save, address, phone, created_at`,
       )
       .bind(...values, businessId)
       .first<BusinessRow>();
     if (!row) throw new Error(`updateBusiness: business ${businessId} not found`);
     return toBusinessRecord(row);
+  }
+
+  async listMembers(businessId: string): Promise<MembershipRecord[]> {
+    const { results } = await this.db
+      .prepare("select user_phone, role, created_at from memberships where business_id = ? order by created_at asc")
+      .bind(businessId)
+      .all<MembershipRow>();
+    return results.map((r) => ({ userPhone: r.user_phone, role: r.role, createdAt: new Date(r.created_at) }));
   }
 
   async getSetupStep(phoneNumber: string): Promise<SetupStep | null> {
@@ -180,9 +231,12 @@ function toBusinessRecord(row: BusinessRow): BusinessRecord {
     id: row.id,
     name: row.name,
     abn: row.abn,
+    gstNumber: row.gst_number,
     timezone: row.timezone,
     gstRegistered: row.gst_registered === 1,
     autoSave: row.auto_save === 1,
+    address: row.address,
+    phone: row.phone,
   };
 }
 

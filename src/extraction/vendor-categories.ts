@@ -77,6 +77,76 @@ export function aggregateVendorCategoryHistory(
   return result;
 }
 
+/** A vendor needs at least this many logged bills to count as "regular" on
+ *  the settings page — same reasoning as MIN_SAMPLE_SIZE above, but this is a
+ *  display concern (which vendors come up often) rather than an extraction
+ *  confidence gate, so it's kept as its own constant/function rather than
+ *  reusing aggregateVendorCategoryHistory. */
+const MIN_REGULAR_BILL_COUNT = 2;
+/** A vendor's majority category needs MORE than this share to be shown as a
+ *  single category rather than "mixed" — deliberately lower than the 0.7
+ *  extraction-confidence bar above (informational, not auto-fill), but a
+ *  strict ">" so an exact tie between two categories reads as "mixed"
+ *  instead of arbitrarily picking whichever was seen first. */
+const MIN_REGULAR_CATEGORY_SHARE = 0.5;
+
+export interface RegularVendor {
+  /** Casing from the most recent bill for this vendor (rows must be newest-first). */
+  vendor: string;
+  billCount: number;
+  category: Category | "mixed";
+  /** The shown category's share of billCount (1 when unanimous, ~0.5+ when "mixed" is avoided narrowly). */
+  categoryConfidence: number;
+}
+
+/**
+ * Frequency view for the settings page's "Regular vendors" section — distinct
+ * from `aggregateVendorCategoryHistory` above (that one powers the
+ * confidence-gated extraction pre-fill and discards vendor casing/keys on
+ * normalised strings only). This keeps a display-ready vendor name and shows
+ * every vendor seen often enough, labelling ones without a clear majority
+ * category as "mixed" instead of dropping them.
+ */
+export function aggregateRegularVendors(
+  rows: Array<{ vendor: string; category: string }>,
+  minBillCount = MIN_REGULAR_BILL_COUNT,
+): RegularVendor[] {
+  interface Group {
+    display: string;
+    count: number;
+    categories: Map<string, number>;
+  }
+  const groups = new Map<string, Group>();
+  for (const row of rows) {
+    const key = normalizeVendorCase(row.vendor);
+    if (key === "") continue;
+    const group = groups.get(key) ?? { display: row.vendor, count: 0, categories: new Map() };
+    group.count += 1;
+    group.categories.set(row.category, (group.categories.get(row.category) ?? 0) + 1);
+    groups.set(key, group);
+  }
+
+  const result: RegularVendor[] = [];
+  for (const group of groups.values()) {
+    if (group.count < minBillCount) continue;
+    let topCategory: string | null = null;
+    let topCount = 0;
+    for (const [category, count] of group.categories) {
+      if (count > topCount) {
+        topCount = count;
+        topCategory = category;
+      }
+    }
+    const confidence = topCount / group.count;
+    const category: Category | "mixed" =
+      topCategory !== null && isCategory(topCategory) && confidence > MIN_REGULAR_CATEGORY_SHARE
+        ? topCategory
+        : "mixed";
+    result.push({ vendor: group.display, billCount: group.count, category, categoryConfidence: confidence });
+  }
+  return result.sort((a, b) => b.billCount - a.billCount);
+}
+
 /**
  * Cold-start dictionary: well-known vendor names -> category, for businesses
  * with no history of their own yet. Deliberately separate from

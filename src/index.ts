@@ -20,8 +20,8 @@ import { basicAuth } from "hono/basic-auth";
 import { loadConfig } from "./config";
 import {
   billsToCsv,
-  dashboardBusiness,
   dashboardData,
+  dashboardSettingsData,
   exportFileName,
   renderDashboardPage,
   renderDashboardSettingsPage,
@@ -154,8 +154,8 @@ export function createApp(deps: AppDeps = {}) {
   });
   app.get("/dev/dashboard/settings", async (c) => {
     const device = c.req.query("device") || undefined;
-    const business = await dashboardBusiness(loadConfig(c.env), cloudBindings(c.env), device);
-    return c.html(renderDashboardSettingsPage(business, device));
+    const settingsData = await dashboardSettingsData(loadConfig(c.env), cloudBindings(c.env), device);
+    return c.html(renderDashboardSettingsPage(settingsData, device));
   });
   app.get("/dev/dashboard/data", async (c) => {
     const q = c.req.query();
