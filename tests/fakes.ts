@@ -18,6 +18,7 @@ import {
   type DraftRecord,
   type DraftStore,
   type FlowPatch,
+  type LoggedBillPatch,
 } from "../src/db/drafts";
 import type { TransactionStore } from "../src/db/transactions";
 import type { UserRecord, UserStore } from "../src/db/users";
@@ -263,6 +264,10 @@ export class FakeDraftStore implements DraftStore {
     return this.logged(userPhone).slice(0, limit);
   }
 
+  async getLogged(id: string): Promise<DraftRecord | null> {
+    return this.drafts.find((d) => d.id === id && (d.status === "logged" || d.status === "paid")) ?? null;
+  }
+
   private logged(userPhone: string): DraftRecord[] {
     return this.drafts
       .filter(
@@ -297,6 +302,25 @@ export class FakeDraftStore implements DraftStore {
     const draft = this.drafts.find((d) => d.id === id);
     if (!draft) return;
     draft.status = "deleted";
+  }
+
+  async updateLogged(id: string, patch: LoggedBillPatch): Promise<DraftRecord | null> {
+    const draft = this.drafts.find((d) => d.id === id && (d.status === "logged" || d.status === "paid"));
+    if (!draft || !draft.extraction) return null;
+    const field = <T,>(current: { value: T | null; confidence: number }, value: T | null | undefined) =>
+      value === undefined ? current : { value, confidence: 1 };
+    draft.extraction = {
+      ...draft.extraction,
+      vendor: field(draft.extraction.vendor, patch.vendor),
+      category_hint: field(draft.extraction.category_hint, patch.category),
+      amount: field(draft.extraction.amount, patch.amount),
+      gst: field(draft.extraction.gst, patch.gst),
+      date: field(draft.extraction.date, patch.date),
+      due_date: field(draft.extraction.due_date, patch.dueDate),
+      invoice_number: field(draft.extraction.invoice_number, patch.invoiceNumber),
+      abn: field(draft.extraction.abn, patch.abn),
+    };
+    return draft;
   }
 
   async findNudgeDue(now: Date, nudgeWindowMs: number): Promise<DraftRecord[]> {

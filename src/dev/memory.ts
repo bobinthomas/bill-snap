@@ -15,12 +15,15 @@ import type {
   OnboardedUser,
   SetupStep,
 } from "../db/businesses";
+import type { AuditEntry, AuditLogStore } from "../db/audit";
+import { DASHBOARD_ADMIN } from "../db/audit";
 import type {
   ConfirmOptions,
   CreateDraftInput,
   DraftRecord,
   DraftStore,
   FlowPatch,
+  LoggedBillPatch,
 } from "../db/drafts";
 import type { UserRecord, UserStore } from "../db/users";
 import type { BillStorage, UploadBillOptions, UploadedBill } from "../storage/bills";
@@ -31,6 +34,7 @@ export interface MemoryStack {
   businesses: BusinessStore;
   drafts: DraftStore;
   storage: BillStorage;
+  audit: AuditLogStore;
 }
 
 /**
@@ -58,6 +62,7 @@ export function createMemoryStack(): MemoryStack {
     businesses,
     drafts: new MemoryDraftStore(),
     storage: new MemoryBillStorage(),
+    audit: new MemoryAuditLogStore(),
   };
 }
 
@@ -197,6 +202,11 @@ class MemoryDraftStore implements DraftStore {
     return this.logged(userPhone).slice(0, limit);
   }
 
+  async getLogged(id: string): Promise<DraftRecord | null> {
+    const draft = this.drafts.find((d) => d.id === id && (d.status === "logged" || d.status === "paid"));
+    return draft ?? null;
+  }
+
   private logged(userPhone: string): DraftRecord[] {
     return this.drafts
       .filter(
@@ -228,6 +238,25 @@ class MemoryDraftStore implements DraftStore {
     if (draft) draft.status = "deleted";
   }
 
+  async updateLogged(id: string, patch: LoggedBillPatch): Promise<DraftRecord | null> {
+    const draft = this.drafts.find((d) => d.id === id && (d.status === "logged" || d.status === "paid"));
+    if (!draft || !draft.extraction) return null;
+    const field = <T,>(current: { value: T | null; confidence: number }, value: T | null | undefined) =>
+      value === undefined ? current : { value, confidence: 1 };
+    draft.extraction = {
+      ...draft.extraction,
+      vendor: field(draft.extraction.vendor, patch.vendor),
+      category_hint: field(draft.extraction.category_hint, patch.category),
+      amount: field(draft.extraction.amount, patch.amount),
+      gst: field(draft.extraction.gst, patch.gst),
+      date: field(draft.extraction.date, patch.date),
+      due_date: field(draft.extraction.due_date, patch.dueDate),
+      invoice_number: field(draft.extraction.invoice_number, patch.invoiceNumber),
+      abn: field(draft.extraction.abn, patch.abn),
+    };
+    return draft;
+  }
+
   async findNudgeDue(now: Date, nudgeWindowMs: number): Promise<DraftRecord[]> {
     const windowEnd = new Date(now.getTime() + nudgeWindowMs);
     return this.drafts.filter(
@@ -256,6 +285,41 @@ class MemoryDraftStore implements DraftStore {
       }
     }
     return count;
+  }
+}
+
+class MemoryAuditLogStore implements AuditLogStore {
+  private readonly entries: AuditEntry[] = [];
+  private readonly businessOf = new Map<string, string | null>();
+  private seq = 0;
+
+  async record(
+    businessId: string | null,
+    transactionId: string,
+    action: "edit" | "delete",
+    changes: Record<string, { from: unknown; to: unknown }>,
+  ): Promise<void> {
+    this.businessOf.set(transactionId, businessId);
+    this.entries.push({
+      id: `audit-${++this.seq}`,
+      transactionId,
+      action,
+      changes,
+      changedBy: DASHBOARD_ADMIN,
+      createdAt: new Date(),
+    });
+  }
+
+  async listRecent(businessId: string, limit = 50): Promise<AuditEntry[]> {
+    // createdAt has millisecond resolution — two admin actions in the same
+    // millisecond would tie; array index (insertion order) breaks the tie
+    // the same way the D1 store's rowid does, so "newest first" holds.
+    return this.entries
+      .map((entry, index) => ({ entry, index }))
+      .filter(({ entry }) => this.businessOf.get(entry.transactionId) === businessId)
+      .sort((a, b) => b.entry.createdAt.getTime() - a.entry.createdAt.getTime() || b.index - a.index)
+      .slice(0, limit)
+      .map(({ entry }) => entry);
   }
 }
 

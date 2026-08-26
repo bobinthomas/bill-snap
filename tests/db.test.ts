@@ -398,6 +398,106 @@ describe("DraftStore (D1)", () => {
     expect(logged[0]?.confirmedAt).toEqual(new Date("2026-08-15T12:01:00.000Z"));
   });
 
+  it("getLogged only returns logged/paid rows", async () => {
+    const { store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    // Still a draft — not visible via getLogged yet.
+    expect(await store.getLogged(draft!.id)).toBeNull();
+
+    await store.setFlowState(draft!.id, { flowState: "awaiting_confirm", extraction: EXTRACTION });
+    await store.confirm(draft!.id, new Date("2026-08-15T12:01:00.000Z"));
+    const logged = await store.getLogged(draft!.id);
+    expect(logged?.status).toBe("logged");
+    expect(logged?.extraction?.vendor.value).toBe("Telstra");
+
+    // Soft-deleted rows also drop out.
+    await store.softDeleteLogged(draft!.id);
+    expect(await store.getLogged(draft!.id)).toBeNull();
+
+    expect(await store.getLogged("does-not-exist")).toBeNull();
+  });
+
+  it("updateLogged keeps raw_extraction and the denormalised columns in sync", async () => {
+    const { db, store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState(draft!.id, { flowState: "awaiting_confirm", extraction: EXTRACTION });
+    await store.confirm(draft!.id, new Date("2026-08-15T12:01:00.000Z"));
+
+    const updated = await store.updateLogged(draft!.id, {
+      vendor: "Origin Energy",
+      category: "utilities",
+      amount: 199.5,
+      gst: 18.14,
+      date: "2026-08-20",
+      invoiceNumber: "INV-2",
+      abn: "12 345 678 901",
+    });
+    // The read path (raw_extraction, what the dashboard/CSV export use).
+    expect(updated?.extraction?.vendor.value).toBe("Origin Energy");
+    expect(updated?.extraction?.vendor.confidence).toBe(1); // admin correction is authoritative
+    expect(updated?.extraction?.category_hint.value).toBe("utilities");
+    expect(updated?.extraction?.amount.value).toBe(199.5);
+    expect(updated?.extraction?.gst.value).toBe(18.14);
+    expect(updated?.extraction?.date.value).toBe("2026-08-20");
+    expect(updated?.extraction?.invoice_number.value).toBe("INV-2");
+    expect(updated?.extraction?.abn.value).toBe("12 345 678 901");
+    // Untouched fields (e.g. due_date) survive the merge unchanged.
+    expect(updated?.extraction?.due_date.value).toBe(EXTRACTION.due_date.value);
+
+    // The denormalised columns TransactionStore reads directly must agree.
+    const row = await db
+      .prepare("select vendor, category, amount, gst, abn, invoice_number from transactions where id = ?")
+      .bind(draft!.id)
+      .first<{ vendor: string; category: string; amount: number; gst: number; abn: string; invoice_number: string }>();
+    expect(row).toEqual({
+      vendor: "Origin Energy",
+      category: "utilities",
+      amount: 199.5,
+      gst: 18.14,
+      abn: "12 345 678 901",
+      invoice_number: "INV-2",
+    });
+  });
+
+  it("updateLogged is a partial patch — omitted fields are untouched", async () => {
+    const { store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState(draft!.id, { flowState: "awaiting_confirm", extraction: EXTRACTION });
+    await store.confirm(draft!.id, new Date("2026-08-15T12:01:00.000Z"));
+
+    const updated = await store.updateLogged(draft!.id, { amount: 500 });
+    expect(updated?.extraction?.amount.value).toBe(500);
+    expect(updated?.extraction?.vendor.value).toBe(EXTRACTION.vendor.value);
+    expect(updated?.extraction?.category_hint.value).toBe(EXTRACTION.category_hint.value);
+  });
+
+  it("updateLogged returns null for a draft (not yet logged) or a missing id", async () => {
+    const { store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    expect(await store.updateLogged(draft!.id, { amount: 1 })).toBeNull();
+    expect(await store.updateLogged("does-not-exist", { amount: 1 })).toBeNull();
+  });
+
   it("findDuplicate checks invoice_number first, then vendor + amount", async () => {
     const { store } = makeStore();
     const draft = await store.createDraft({

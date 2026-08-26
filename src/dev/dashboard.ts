@@ -7,13 +7,27 @@
  */
 import type { AppConfig } from "../config";
 import type { CloudBindings } from "../bindings";
+import type { AuditEntry } from "../db/audit";
+import { createD1AuditLogStore } from "../db/audit";
 import type { BusinessPatch, BusinessRecord, MembershipRecord } from "../db/businesses";
-import type { DraftRecord } from "../db/drafts";
+import type { DraftRecord, LoggedBillPatch } from "../db/drafts";
 import { CATEGORIES, type RegularVendor } from "../extraction/vendor-categories";
 import { mergeKnownVendors } from "../extraction/regex";
 import { resolveBusiness } from "../flows/helpers";
 import { demoDeps, DEMO_PHONE } from "./demo";
-import { iconBarChart, iconCheckCircle, iconDownload, iconHome, iconReceipt, iconRefresh, iconSettings, iconTag } from "./icons";
+import {
+  iconBarChart,
+  iconCheckCircle,
+  iconDownload,
+  iconHome,
+  iconPencil,
+  iconReceipt,
+  iconRefresh,
+  iconSettings,
+  iconTag,
+  iconTrash,
+} from "./icons";
+import { getSharedMemoryStack } from "./memory";
 import { BASE_STYLES } from "./theme";
 import { PREMIUM_FONTS, PREMIUM_REVEAL_SCRIPT, PREMIUM_STYLES } from "./theme-premium";
 
@@ -394,6 +408,7 @@ ${PREMIUM_STYLES}
       <div><div class="brand-title">BillSnap</div><div class="brand-sub">Dashboard</div></div>
     </div>
     <nav class="topbar-nav">
+      <a id="bills-link" class="nav-link" href="/dev/dashboard/bills">${iconReceipt} Bills</a>
       <a id="settings-link" class="nav-link" href="/dev/dashboard/settings">${iconSettings} Settings</a>
       <a class="nav-link" href="/">${iconHome} Landing</a>
     </nav>
@@ -514,7 +529,10 @@ ${PREMIUM_STYLES}
   // Carry the same device scope into Settings so it shows this business, not the demo one.
   (function () {
     const dev = new URLSearchParams(location.search).get("device");
-    if (dev) $("settings-link").href = "/dev/dashboard/settings?device=" + encodeURIComponent(dev);
+    if (dev) {
+      $("settings-link").href = "/dev/dashboard/settings?device=" + encodeURIComponent(dev);
+      $("bills-link").href = "/dev/dashboard/bills?device=" + encodeURIComponent(dev);
+    }
   })();
   async function refresh() {
     const q = currentParams().toString();
@@ -579,6 +597,154 @@ export async function saveDashboardSettings(
   if (!business) return false;
   await deps.businesses.updateBusiness(business.id, patch);
   return true;
+}
+
+function dashboardAuditStore(bindings?: CloudBindings) {
+  return bindings?.db ? createD1AuditLogStore(bindings.db) : getSharedMemoryStack().audit;
+}
+
+export interface DashboardBillsData {
+  business: BusinessRecord | null;
+  bills: LoggedBill[];
+  auditLog: AuditEntry[];
+}
+
+/** Bills table + audit trail data for the admin bills page (§dev/dashboard
+ *  bills). Up to 500 most recent logged/paid bills — a soft cap, no real
+ *  pagination yet, same as the 100-row default used elsewhere in this
+ *  file — and the 50 most recent audit entries for the resolved business. */
+export async function dashboardBillsData(
+  config: AppConfig,
+  bindings?: CloudBindings,
+  userPhone: string = DEMO_PHONE,
+): Promise<DashboardBillsData> {
+  const deps = demoDeps(config, undefined, bindings);
+  const business = await resolveBusiness(deps, userPhone);
+  if (!business) return { business: null, bills: [], auditLog: [] };
+  const [logged, auditLog] = await Promise.all([
+    deps.drafts.listLogged(userPhone, 500),
+    dashboardAuditStore(bindings).listRecent(business.id, 50),
+  ]);
+  return { business, bills: logged.map(toLoggedBill), auditLog };
+}
+
+export interface DashboardBillData {
+  business: BusinessRecord | null;
+  bill: LoggedBill | null;
+}
+
+/** Single logged bill for the admin edit form's prefill — see
+ *  saveDashboardBillEdit's doc comment for the tenant-check rationale.
+ *  `bill: null` with a non-null `business` means the id doesn't exist, isn't
+ *  logged/paid, or belongs to another device — the route treats that as 404. */
+export async function dashboardBillData(
+  config: AppConfig,
+  bindings: CloudBindings | undefined,
+  userPhone: string = DEMO_PHONE,
+  id: string,
+): Promise<DashboardBillData> {
+  const deps = demoDeps(config, undefined, bindings);
+  const business = await resolveBusiness(deps, userPhone);
+  if (!business) return { business: null, bill: null };
+  const record = await deps.drafts.getLogged(id);
+  if (!record || record.userPhone !== userPhone) return { business, bill: null };
+  return { business, bill: toLoggedBill(record) };
+}
+
+const EDITABLE_BILL_FIELDS = ["vendor", "category", "amount", "gst", "date", "dueDate", "invoiceNumber", "abn"] as const;
+type EditableBillField = (typeof EDITABLE_BILL_FIELDS)[number];
+
+function extractionField(e: DraftRecord["extraction"], key: EditableBillField): unknown {
+  if (!e) return null;
+  switch (key) {
+    case "vendor":
+      return e.vendor.value;
+    case "category":
+      return e.category_hint.value;
+    case "amount":
+      return e.amount.value;
+    case "gst":
+      return e.gst.value;
+    case "date":
+      return e.date.value;
+    case "dueDate":
+      return e.due_date.value;
+    case "invoiceNumber":
+      return e.invoice_number.value;
+    case "abn":
+      return e.abn.value;
+  }
+}
+
+/**
+ * Applies an admin correction to a logged bill (§dev/dashboard bills table)
+ * and records an audit entry for whichever fields actually changed — a
+ * no-op patch (resubmitting the same values) logs nothing. The tenant check
+ * is by `userPhone` (matches every other dashboard data function in this
+ * file — device/phone-scoped, not business_id-scoped) rather than a
+ * business_id column on the transaction, so a bill from another device
+ * can't be edited/deleted through this device's dashboard even though the
+ * dashboard itself is a single shared-password admin surface.
+ */
+export async function saveDashboardBillEdit(
+  config: AppConfig,
+  bindings: CloudBindings | undefined,
+  userPhone: string = DEMO_PHONE,
+  id: string,
+  patch: LoggedBillPatch,
+): Promise<"ok" | "not-found"> {
+  const deps = demoDeps(config, undefined, bindings);
+  const business = await resolveBusiness(deps, userPhone);
+  if (!business) return "not-found";
+  const before = await deps.drafts.getLogged(id);
+  if (!before || before.userPhone !== userPhone) return "not-found";
+
+  // Snapshot the pre-edit values by primitive, not by reference: the
+  // in-memory store's updateLogged mutates the SAME DraftRecord object
+  // `before` points at (unlike D1, where each read is an independent row),
+  // so comparing before.extraction against after.extraction post-update
+  // would silently diff a value against itself.
+  const beforeValues = new Map(EDITABLE_BILL_FIELDS.map((key) => [key, extractionField(before.extraction, key)]));
+
+  const after = await deps.drafts.updateLogged(id, patch);
+  if (!after) return "not-found";
+
+  const changes: Record<string, { from: unknown; to: unknown }> = {};
+  for (const key of EDITABLE_BILL_FIELDS) {
+    if (!(key in patch)) continue;
+    const from = beforeValues.get(key);
+    const to = extractionField(after.extraction, key);
+    if (from !== to) changes[key] = { from, to };
+  }
+  if (Object.keys(changes).length > 0) {
+    await dashboardAuditStore(bindings).record(business.id, id, "edit", changes);
+  }
+  return "ok";
+}
+
+/** Soft-deletes a logged bill (reuses the same §7.4 status transition the
+ *  webapp's own undo uses) and snapshots its fields into the audit trail —
+ *  see saveDashboardBillEdit's doc comment for the tenant-check rationale. */
+export async function deleteDashboardBill(
+  config: AppConfig,
+  bindings: CloudBindings | undefined,
+  userPhone: string = DEMO_PHONE,
+  id: string,
+): Promise<"ok" | "not-found"> {
+  const deps = demoDeps(config, undefined, bindings);
+  const business = await resolveBusiness(deps, userPhone);
+  if (!business) return "not-found";
+  const bill = await deps.drafts.getLogged(id);
+  if (!bill || bill.userPhone !== userPhone) return "not-found";
+
+  await deps.drafts.softDeleteLogged(id);
+  const snapshot: Record<string, { from: unknown; to: unknown }> = {};
+  for (const key of EDITABLE_BILL_FIELDS) {
+    const value = extractionField(bill.extraction, key);
+    if (value !== null) snapshot[key] = { from: value, to: null };
+  }
+  await dashboardAuditStore(bindings).record(business.id, id, "delete", snapshot);
+  return "ok";
 }
 
 function escapeHtml(s: string): string {
@@ -667,6 +833,7 @@ ${PREMIUM_STYLES}
     </div>
     <nav class="topbar-nav">
       <a class="nav-link" href="${dashboardHref}">${iconBarChart} Dashboard</a>
+      <a class="nav-link" href="${withDevice("/dev/dashboard/bills", device)}">${iconReceipt} Bills</a>
       <a class="nav-link" href="/">${iconHome} Landing</a>
     </nav>
   </header>
@@ -736,6 +903,230 @@ ${PREMIUM_STYLES}
         : ""
     }
     ${business ? `<p class="hint">Regular vendors, team, and spending categories are generated automatically from your logged bills.</p>` : ""}
+  </main>
+<script>${PREMIUM_REVEAL_SCRIPT}</script>
+</body>
+</html>`;
+}
+
+function formatMoney(n: number | null): string {
+  return n === null ? "—" : "$" + n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatAuditChanges(changes: Record<string, { from: unknown; to: unknown }>): string {
+  const fmt = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : escapeHtml(String(v)));
+  return Object.entries(changes)
+    .map(([field, { from, to }]) => `${escapeHtml(field)}: ${fmt(from)} → ${fmt(to)}`)
+    .join(", ");
+}
+
+/**
+ * Admin bills table — every logged bill with edit/delete, plus the audit
+ * trail those actions write to (§dev/dashboard/bills). Gated the same way
+ * as every other /dev/dashboard/* route: the shared dashboard password —
+ * see saveDashboardBillEdit's doc comment for why that's sufficient here.
+ */
+export function renderDashboardBillsPage(
+  data: DashboardBillsData,
+  device?: string,
+  flash?: "saved" | "deleted",
+): string {
+  const { business, bills, auditLog } = data;
+  const dashboardHref = withDevice("/dev/dashboard", device);
+  const settingsHref = withDevice("/dev/dashboard/settings", device);
+
+  const billRows = bills.length
+    ? bills
+        .map((b) => {
+          const editHref = withDevice(`/dev/dashboard/bills/${encodeURIComponent(b.id)}/edit`, device);
+          const deleteAction = withDevice(`/dev/dashboard/bills/${encodeURIComponent(b.id)}/delete`, device);
+          return `<tr>
+          <td>${escapeHtml(b.date ?? b.confirmedAt.slice(0, 10))}</td>
+          <td>${escapeHtml(b.vendor ?? "—")}</td>
+          <td><span class="chip chip-accent">${escapeHtml(b.category)}</span></td>
+          <td class="num">${formatMoney(b.amount)}</td>
+          <td class="num">${formatMoney(b.gst)}</td>
+          <td>${escapeHtml(b.invoiceNumber ?? "—")}</td>
+          <td class="row-actions">
+            <a class="btn btn-ghost btn-icon" href="${editHref}" aria-label="Edit bill" title="Edit">${iconPencil}</a>
+            <form method="post" action="${deleteAction}" onsubmit="return confirm('Delete this bill? This cannot be undone.');">
+              ${device ? `<input type="hidden" name="device" value="${escapeHtml(device)}" />` : ""}
+              <button class="btn btn-danger btn-icon" type="submit" aria-label="Delete bill" title="Delete">${iconTrash}</button>
+            </form>
+          </td>
+        </tr>`;
+        })
+        .join("")
+    : "";
+
+  const auditRows = auditLog.length
+    ? auditLog
+        .map((a) => {
+          const bill = bills.find((b) => b.id === a.transactionId);
+          const label = bill
+            ? `${escapeHtml(bill.vendor ?? "—")} · ${formatMoney(bill.amount)}`
+            : escapeHtml(a.transactionId);
+          const actionChip =
+            a.action === "delete"
+              ? `<span class="chip chip-warn">Deleted</span>`
+              : `<span class="chip chip-accent">Edited</span>`;
+          return `<tr>
+          <td>${escapeHtml(a.createdAt.toISOString().slice(0, 16).replace("T", " "))}</td>
+          <td>${actionChip}</td>
+          <td>${label}</td>
+          <td>${formatAuditChanges(a.changes)}</td>
+          <td>${escapeHtml(a.changedBy)}</td>
+        </tr>`;
+        })
+        .join("")
+    : "";
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BillSnap — bills</title>
+${PREMIUM_FONTS}
+<style>
+${BASE_STYLES}
+${PREMIUM_STYLES}
+  main { max-width: 960px; margin: 0 auto; padding: 28px 20px 40px; }
+  .panel + .panel, section.panel ~ section.panel { margin-top: 14px; }
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
+  th { color: var(--text-faint); font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; }
+  tbody tr:hover td { background: var(--surface-2); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.row-actions { display: flex; gap: 6px; align-items: center; }
+  td.row-actions form { display: contents; }
+  .btn-danger { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-border); }
+  .btn-danger:hover { background: var(--danger-border); }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="brand-mark">${iconReceipt}</span>
+      <div><div class="brand-title">BillSnap</div><div class="brand-sub">Bills</div></div>
+    </div>
+    <nav class="topbar-nav">
+      <a class="nav-link" href="${dashboardHref}">${iconBarChart} Dashboard</a>
+      <a class="nav-link" href="${settingsHref}">${iconSettings} Settings</a>
+      <a class="nav-link" href="/">${iconHome} Landing</a>
+    </nav>
+  </header>
+  <main>
+    <span class="eyebrow" data-reveal><span class="dot"></span>Bill management</span>
+    ${
+      flash === "saved"
+        ? `<div class="notice notice-success" data-reveal><span class="notice-icon">${iconCheckCircle}</span><span>Bill updated.</span></div>`
+        : flash === "deleted"
+          ? `<div class="notice notice-success" data-reveal><span class="notice-icon">${iconCheckCircle}</span><span>Bill deleted.</span></div>`
+          : ""
+    }
+    <section class="panel" data-reveal>
+      <div class="panel-inner">
+        <h2>All bills</h2>
+        ${
+          business
+            ? billRows
+              ? `<div class="table-scroll"><table><thead><tr><th>Date</th><th>Vendor</th><th>Category</th><th>Amount</th><th>GST</th><th>Invoice</th><th></th></tr></thead><tbody>${billRows}</tbody></table></div>`
+              : `<div class="empty">No bills logged yet.</div>`
+            : `<div class="empty">No business found for this device yet — send a bill first.</div>`
+        }
+      </div>
+    </section>
+    ${
+      business
+        ? `<section class="panel" data-reveal>
+      <div class="panel-inner">
+        <h2>Audit trail</h2>
+        ${
+          auditRows
+            ? `<div class="table-scroll"><table><thead><tr><th>When</th><th>Action</th><th>Bill</th><th>Changes</th><th>By</th></tr></thead><tbody>${auditRows}</tbody></table></div>`
+            : `<div class="empty">No edits or deletions yet.</div>`
+        }
+      </div>
+    </section>`
+        : ""
+    }
+  </main>
+<script>${PREMIUM_REVEAL_SCRIPT}</script>
+</body>
+</html>`;
+}
+
+/** Admin edit form for a single logged bill — prefilled, POSTs back to
+ *  /dev/dashboard/bills/:id/edit. vendorResolvedTo (system-computed) and
+ *  dueDate (not shown anywhere else in the app — CSV export, settings, etc.
+ *  all omit it) are deliberately not exposed here. */
+export function renderDashboardBillEditPage(bill: LoggedBill, device?: string, error?: string): string {
+  const billsHref = withDevice("/dev/dashboard/bills", device);
+  const field = (v: string | null) => (v ? escapeHtml(v) : "");
+  const categoryOptions = CATEGORIES.map(
+    (c) => `<option value="${c}"${c === bill.category ? " selected" : ""}>${escapeHtml(c)}</option>`,
+  ).join("");
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BillSnap — edit bill</title>
+${PREMIUM_FONTS}
+<style>
+${BASE_STYLES}
+${PREMIUM_STYLES}
+  main { max-width: 560px; margin: 0 auto; padding: 28px 20px 40px; }
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+  .field label { font-size: 12.5px; font-weight: 600; color: var(--text-dim); }
+  .field .text-input, .field select { width: 100%; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 560px) { .field-row { grid-template-columns: 1fr; } }
+  .form-actions { display: flex; gap: 10px; margin-top: 6px; }
+  .error-notice { color: var(--danger); font-size: 13px; margin: 0 0 16px; }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="brand-mark">${iconPencil}</span>
+      <div><div class="brand-title">BillSnap</div><div class="brand-sub">Edit bill</div></div>
+    </div>
+    <nav class="topbar-nav">
+      <a class="nav-link" href="${billsHref}">${iconReceipt} Bills</a>
+    </nav>
+  </header>
+  <main>
+    <span class="eyebrow" data-reveal><span class="dot"></span>Admin correction</span>
+    <section class="panel" data-reveal>
+      <div class="panel-inner">
+        <h2>Edit bill</h2>
+        ${error ? `<p class="error-notice">${escapeHtml(error)}</p>` : ""}
+        <form method="post" action="${withDevice(`/dev/dashboard/bills/${encodeURIComponent(bill.id)}/edit`, device)}">
+          ${device ? `<input type="hidden" name="device" value="${escapeHtml(device)}" />` : ""}
+          <div class="field"><label for="b-vendor">Vendor</label><input id="b-vendor" name="vendor" class="text-input" type="text" value="${field(bill.vendor)}" /></div>
+          <div class="field-row">
+            <div class="field"><label for="b-category">Category</label><select id="b-category" name="category">${categoryOptions}</select></div>
+            <div class="field"><label for="b-date">Bill date</label><input id="b-date" name="date" class="text-input" type="date" value="${field(bill.date)}" /></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label for="b-amount">Amount</label><input id="b-amount" name="amount" class="text-input" type="number" step="0.01" value="${bill.amount ?? ""}" /></div>
+            <div class="field"><label for="b-gst">GST</label><input id="b-gst" name="gst" class="text-input" type="number" step="0.01" value="${bill.gst ?? ""}" /></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label for="b-invoice">Invoice number</label><input id="b-invoice" name="invoiceNumber" class="text-input" type="text" placeholder="Not set" value="${field(bill.invoiceNumber)}" /></div>
+            <div class="field"><label for="b-abn">ABN</label><input id="b-abn" name="abn" class="text-input" type="text" placeholder="Not set" value="${field(bill.abn)}" /></div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit">Save changes</button>
+            <a class="btn btn-ghost" href="${billsHref}">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </section>
   </main>
 <script>${PREMIUM_REVEAL_SCRIPT}</script>
 </body>

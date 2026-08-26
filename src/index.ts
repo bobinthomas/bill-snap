@@ -20,11 +20,17 @@ import { basicAuth } from "hono/basic-auth";
 import { loadConfig } from "./config";
 import {
   billsToCsv,
+  dashboardBillData,
+  dashboardBillsData,
   dashboardData,
   dashboardSettingsData,
+  deleteDashboardBill,
   exportFileName,
+  renderDashboardBillEditPage,
+  renderDashboardBillsPage,
   renderDashboardPage,
   renderDashboardSettingsPage,
+  saveDashboardBillEdit,
   saveDashboardSettings,
 } from "./dev/dashboard";
 import { DEMO_MEDIA_ID, demoDeps, demoState, renderDemoPage, setDemoMedia, simulatePhoto, simulateText } from "./dev/demo";
@@ -41,6 +47,7 @@ import { createD1BusinessStore, type BusinessStore } from "./db/businesses";
 import { createD1DraftStore, type DraftStore } from "./db/drafts";
 import { createD1TransactionStore, type TransactionStore } from "./db/transactions";
 import { createD1UserStore, type UserStore } from "./db/users";
+import { CATEGORIES } from "./extraction/vendor-categories";
 import { createExtractionService, type ExtractionService } from "./extraction/pipeline";
 import type { WorkersAi } from "./extraction/workers-ai";
 import { runSweep } from "./flows/nudge";
@@ -183,6 +190,67 @@ export function createApp(deps: AppDeps = {}) {
     if (device) params.set("device", device);
     params.set("saved", "1");
     return c.redirect(`/dev/dashboard/settings?${params.toString()}`);
+  });
+  app.get("/dev/dashboard/bills", async (c) => {
+    const device = c.req.query("device") || undefined;
+    const flashQ = c.req.query("flash");
+    const flash = flashQ === "saved" || flashQ === "deleted" ? flashQ : undefined;
+    const billsData = await dashboardBillsData(loadConfig(c.env), cloudBindings(c.env), device);
+    return c.html(renderDashboardBillsPage(billsData, device, flash));
+  });
+  app.get("/dev/dashboard/bills/:id/edit", async (c) => {
+    const device = c.req.query("device") || undefined;
+    const { bill } = await dashboardBillData(loadConfig(c.env), cloudBindings(c.env), device, c.req.param("id"));
+    if (!bill) return c.text("Not found", 404);
+    return c.html(renderDashboardBillEditPage(bill, device));
+  });
+  app.post("/dev/dashboard/bills/:id/edit", async (c) => {
+    const config = loadConfig(c.env);
+    const bindings = cloudBindings(c.env);
+    const id = c.req.param("id");
+    const form = await c.req.formData().catch(() => null);
+    const device = (typeof form?.get("device") === "string" ? (form.get("device") as string) : "") || undefined;
+    const str = (key: string) => {
+      const v = form?.get(key);
+      return typeof v === "string" ? v.trim() : "";
+    };
+    const num = (key: string) => {
+      const v = str(key);
+      if (v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const categoryRaw = str("category");
+    const category = (CATEGORIES as readonly string[]).includes(categoryRaw)
+      ? (categoryRaw as (typeof CATEGORIES)[number])
+      : undefined;
+    const result = await saveDashboardBillEdit(config, bindings, device, id, {
+      vendor: str("vendor") || null,
+      ...(category ? { category } : {}),
+      amount: num("amount"),
+      gst: num("gst"),
+      date: str("date") || null,
+      invoiceNumber: str("invoiceNumber") || null,
+      abn: str("abn") || null,
+    });
+    if (result === "not-found") return c.text("Not found", 404);
+    const params = new URLSearchParams();
+    if (device) params.set("device", device);
+    params.set("flash", "saved");
+    return c.redirect(`/dev/dashboard/bills?${params.toString()}`);
+  });
+  app.post("/dev/dashboard/bills/:id/delete", async (c) => {
+    const config = loadConfig(c.env);
+    const bindings = cloudBindings(c.env);
+    const id = c.req.param("id");
+    const form = await c.req.formData().catch(() => null);
+    const device = (typeof form?.get("device") === "string" ? (form.get("device") as string) : "") || undefined;
+    const result = await deleteDashboardBill(config, bindings, device, id);
+    if (result === "not-found") return c.text("Not found", 404);
+    const params = new URLSearchParams();
+    if (device) params.set("device", device);
+    params.set("flash", "deleted");
+    return c.redirect(`/dev/dashboard/bills?${params.toString()}`);
   });
   app.get("/dev/dashboard/data", async (c) => {
     const q = c.req.query();

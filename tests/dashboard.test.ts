@@ -36,11 +36,17 @@ async function data(app: ReturnType<typeof createApp>, query = "") {
 
 /** Log a single bill directly through the real stores with a fixed confirmedAt. */
 async function logBill(text: string, confirmedAt: Date): Promise<void> {
+  await logBillAs(DEMO_PHONE, text, confirmedAt);
+}
+
+/** Same as logBill, but for an arbitrary phone/device — and returns the
+ *  transaction id (admin bills-table tests need it for edit/delete URLs). */
+async function logBillAs(phone: string, text: string, confirmedAt: Date): Promise<string> {
   const deps = demoDeps(loadConfig(ENV));
   const outcome = await deps.extraction.run({ text });
   const draft = await deps.drafts.createDraft({
-    userPhone: DEMO_PHONE,
-    waMessageId: `wamid.test.${text}.${confirmedAt.getTime()}`,
+    userPhone: phone,
+    waMessageId: `wamid.test.${phone}.${text}.${confirmedAt.getTime()}`,
     imageUrls: [],
     flowExpiresAt: new Date(Date.now() + 10 * 60_000),
   });
@@ -52,6 +58,7 @@ async function logBill(text: string, confirmedAt: Date): Promise<void> {
     machineRead: outcome.machineRead,
   });
   await deps.drafts.confirm(draft!.id, confirmedAt, { autoLogged: false });
+  return draft!.id;
 }
 
 /** Six realistic bills, one per day going back — the fixture the removed
@@ -399,5 +406,133 @@ describe("CSV export letterhead", () => {
     expect(csv.trimEnd().split("\r\n")[0]).toBe(
       "Logged,Bill date,Vendor,Vendor resolved to,Category,Amount,GST,GST basis,Invoice,ABN,Source,Gate",
     );
+  });
+});
+
+describe("admin bills table (/dev/dashboard/bills)", () => {
+  beforeEach(() => resetDemo());
+
+  it("shows a business-not-found state before the demo phone is onboarded", async () => {
+    const app = createApp();
+    const html = await (await get(app, "/dev/dashboard/bills")).text();
+    expect(html).toContain("No business found for this device");
+  });
+
+  it("lists logged bills with edit/delete actions", async () => {
+    const deps = demoDeps(loadConfig(ENV));
+    await deps.businesses.onboard(DEMO_PHONE);
+    await logBill("internet 100 telstra gst", new Date());
+
+    const app = createApp();
+    const html = await (await get(app, "/dev/dashboard/bills")).text();
+    expect(html).toMatch(/<td>[^<]*[Tt]elstra[^<]*<\/td>/);
+    expect(html).toContain("$100.00");
+    expect(html).toContain(">utilities<");
+    expect(html).toContain("/edit");
+    expect(html).toContain("/delete");
+  });
+
+  it("edit form prefills the bill, and POST updates the table + downstream vendor memory", async () => {
+    const deps = demoDeps(loadConfig(ENV));
+    await deps.businesses.onboard(DEMO_PHONE);
+    // Two Telstra bills clear the "regular vendor" threshold on the settings page.
+    const idA = await logBillAs(DEMO_PHONE, "internet 100 telstra gst", new Date());
+    await logBillAs(DEMO_PHONE, "internet 120 telstra gst", new Date(Date.now() - 60_000));
+
+    const app = createApp();
+    const settingsBefore = await (await get(app, "/dev/dashboard/settings")).text();
+    expect(settingsBefore).toMatch(/<td>[^<]*[Tt]elstra[^<]*<\/td><td class="num">2<\/td>/);
+
+    const editForm = await (await get(app, `/dev/dashboard/bills/${idA}/edit`)).text();
+    expect(editForm).toContain('value="telstra"');
+    expect(editForm).toContain('value="utilities" selected');
+
+    const res = await app.request(
+      `/dev/dashboard/bills/${idA}/edit`,
+      {
+        method: "POST",
+        headers: { ...AUTH_HEADER, "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          vendor: "Origin Energy",
+          category: "utilities",
+          amount: "150",
+          gst: "13.64",
+          date: "2026-08-20",
+          invoiceNumber: "INV-9",
+          abn: "12 345 678 901",
+        }).toString(),
+      },
+      ENV,
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/dev/dashboard/bills?flash=saved");
+
+    const afterBills = await (await get(app, "/dev/dashboard/bills?flash=saved")).text();
+    expect(afterBills).toContain("Bill updated.");
+    expect(afterBills).toMatch(/<td>[^<]*Origin Energy[^<]*<\/td>/);
+    expect(afterBills).toContain("$150.00");
+    expect(afterBills).toContain("Edited");
+    expect(afterBills).toContain("vendor:");
+
+    // Recategorising bill A away from Telstra drops it below the 2-bill
+    // "regular vendor" threshold — confirms updateLogged's denormalised
+    // column write reached TransactionStore.getRegularVendors, not just
+    // the raw_extraction copy the table itself reads.
+    const settingsAfter = await (await get(app, "/dev/dashboard/settings")).text();
+    expect(settingsAfter).not.toMatch(/<td>[^<]*[Tt]elstra[^<]*<\/td><td class="num">2<\/td>/);
+  });
+
+  it("delete removes the bill from the table and logs an audit entry", async () => {
+    const deps = demoDeps(loadConfig(ENV));
+    await deps.businesses.onboard(DEMO_PHONE);
+    const id = await logBillAs(DEMO_PHONE, "internet 100 telstra gst", new Date());
+
+    const app = createApp();
+    const res = await app.request(`/dev/dashboard/bills/${id}/delete`, { method: "POST", headers: AUTH_HEADER }, ENV);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/dev/dashboard/bills?flash=deleted");
+
+    const html = await (await get(app, "/dev/dashboard/bills?flash=deleted")).text();
+    expect(html).toContain("Bill deleted.");
+    expect(html).toContain("No bills logged yet.");
+    expect(html).toContain("Deleted");
+  });
+
+  it("404s on cross-device edit/delete attempts", async () => {
+    const deps = demoDeps(loadConfig(ENV));
+    await deps.businesses.onboard(DEMO_PHONE);
+    const id = await logBillAs(DEMO_PHONE, "internet 100 telstra gst", new Date());
+    // A second device with its own, separate business.
+    await deps.businesses.onboard("61499999999");
+
+    const app = createApp();
+    const editRes = await get(app, `/dev/dashboard/bills/${id}/edit?device=61499999999`);
+    expect(editRes.status).toBe(404);
+
+    const postRes = await app.request(
+      `/dev/dashboard/bills/${id}/edit`,
+      {
+        method: "POST",
+        headers: { ...AUTH_HEADER, "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ device: "61499999999", vendor: "Hacked" }).toString(),
+      },
+      ENV,
+    );
+    expect(postRes.status).toBe(404);
+
+    const deleteRes = await app.request(
+      `/dev/dashboard/bills/${id}/delete`,
+      {
+        method: "POST",
+        headers: { ...AUTH_HEADER, "content-type": "application/x-www-form-urlencoded" },
+        body: "device=61499999999",
+      },
+      ENV,
+    );
+    expect(deleteRes.status).toBe(404);
+
+    // Untouched.
+    const html = await (await get(app, "/dev/dashboard/bills")).text();
+    expect(html).toMatch(/<td>[^<]*[Tt]elstra[^<]*<\/td>/);
   });
 });

@@ -15,6 +15,7 @@
  * INTEGER 0/1, image_urls / raw_extraction as JSON strings. Timestamps are
  * compared lexicographically (same ISO format everywhere).
  */
+import type { Category } from "../extraction/vendor-categories";
 import type { FlowState, GatingLevel } from "../types";
 import type { BillExtraction } from "../types";
 import { parseJson, type D1Like } from "./d1";
@@ -103,6 +104,21 @@ export function toDuplicateCandidate(extraction: BillExtraction): DuplicateCandi
   };
 }
 
+/** Admin correction to a logged bill (§dev/dashboard bills table) — every
+ *  provided field becomes authoritative ({value, confidence: 1}) in
+ *  raw_extraction, and mirrors onto the matching denormalised column so the
+ *  two never disagree (see updateLogged's doc comment). */
+export interface LoggedBillPatch {
+  vendor?: string | null;
+  category?: Category;
+  amount?: number | null;
+  gst?: number | null;
+  date?: string | null;
+  dueDate?: string | null;
+  invoiceNumber?: string | null;
+  abn?: string | null;
+}
+
 export interface DraftStore {
   /** Returns null when a draft already exists for (userPhone, waMessageId). */
   createDraft(input: CreateDraftInput): Promise<DraftRecord | null>;
@@ -118,10 +134,15 @@ export interface DraftStore {
   findRecentLogged(userPhone: string, within: Date): Promise<DraftRecord | null>;
   /** Logged/paid transactions, newest first — dashboard/summaries (§4.3). */
   listLogged(userPhone: string, limit?: number): Promise<DraftRecord[]>;
+  /** Single logged/paid transaction by id, or null — admin edit form prefill / audit diff base. */
+  getLogged(id: string): Promise<DraftRecord | null>;
   /** §5.8 duplicate gate: any logged match per `isDuplicateMatch`, within the window. */
   findDuplicate(userPhone: string, extraction: BillExtraction, within: Date): Promise<DraftRecord | null>;
   /** status: logged/paid → deleted (soft delete per §7.4). */
   softDeleteLogged(id: string): Promise<void>;
+  /** Admin correction to a logged/paid bill — see LoggedBillPatch. Returns
+   *  null if the id isn't a logged/paid transaction. */
+  updateLogged(id: string, patch: LoggedBillPatch): Promise<DraftRecord | null>;
   /** Awaiting-reply drafts, never nudged, inside the nudge window (expires in ≤ window, not yet expired). */
   findNudgeDue(now: Date, nudgeWindowMs: number): Promise<DraftRecord[]>;
   /** Set flow_nudged_at — enforces the one-nudge cap (§6.2). */
@@ -275,6 +296,14 @@ class D1DraftStore implements DraftStore {
     return res.results.map(toDraftRecord);
   }
 
+  async getLogged(id: string): Promise<DraftRecord | null> {
+    const row = await this.db
+      .prepare(`select ${DRAFT_COLUMNS} from transactions where id = ? and status in ('logged', 'paid')`)
+      .bind(id)
+      .first<TransactionRow>();
+    return row ? toDraftRecord(row) : null;
+  }
+
   async findDuplicate(
     userPhone: string,
     extraction: BillExtraction,
@@ -309,6 +338,51 @@ class D1DraftStore implements DraftStore {
 
   async softDeleteLogged(id: string): Promise<void> {
     await this.db.prepare("update transactions set status = 'deleted' where id = ?").bind(id).run();
+  }
+
+  /** Rewrites raw_extraction (merged, each patched field {value, confidence:
+   *  1}) AND all of its denormalised column mirrors in one statement — see
+   *  this file's module doc: TransactionStore reads vendor/category straight
+   *  off the columns, so a partial update would let the two drift apart. */
+  async updateLogged(id: string, patch: LoggedBillPatch): Promise<DraftRecord | null> {
+    const before = await this.getRow(id);
+    if (!before || (before.status !== "logged" && before.status !== "paid")) return null;
+    const e = before.raw_extraction ? parseJson<BillExtraction | null>(before.raw_extraction, null) : null;
+    if (!e) return null;
+
+    const field = <T>(current: { value: T | null; confidence: number }, value: T | null | undefined) =>
+      value === undefined ? current : { value, confidence: 1 };
+
+    const merged: BillExtraction = {
+      ...e,
+      vendor: field(e.vendor, patch.vendor),
+      category_hint: field(e.category_hint, patch.category),
+      amount: field(e.amount, patch.amount),
+      gst: field(e.gst, patch.gst),
+      date: field(e.date, patch.date),
+      due_date: field(e.due_date, patch.dueDate),
+      invoice_number: field(e.invoice_number, patch.invoiceNumber),
+      abn: field(e.abn, patch.abn),
+    };
+
+    const row = await this.db
+      .prepare(
+        `update transactions set raw_extraction = ?, vendor = ?, category = ?, amount = ?, gst = ?, abn = ?, invoice_number = ?, due_date = ?
+         where id = ? and status in ('logged', 'paid') returning ${DRAFT_COLUMNS}`,
+      )
+      .bind(
+        JSON.stringify(merged),
+        merged.vendor.value,
+        merged.category_hint.value,
+        merged.amount.value,
+        merged.gst.value,
+        merged.abn.value,
+        merged.invoice_number.value,
+        merged.due_date.value,
+        id,
+      )
+      .first<TransactionRow>();
+    return row ? toDraftRecord(row) : null;
   }
 
   async findNudgeDue(now: Date, nudgeWindowMs: number): Promise<DraftRecord[]> {
