@@ -32,6 +32,7 @@ import {
   renderDashboardSettingsPage,
   saveDashboardBillEdit,
   saveDashboardSettings,
+  switchDashboardCompany,
 } from "./dev/dashboard";
 import { DEMO_MEDIA_ID, demoDeps, demoState, renderDemoPage, setDemoMedia, simulatePhoto, simulateText } from "./dev/demo";
 import {
@@ -39,8 +40,11 @@ import {
   stashWebMedia,
   webAction,
   webAppState,
+  webHasBusiness,
   webManualEntry,
   webPhoto,
+  webResolveDuplicate,
+  webSelectCompany,
   webSetup,
 } from "./webapp/app";
 import { createD1BusinessStore, type BusinessStore } from "./db/businesses";
@@ -163,9 +167,12 @@ export function createApp(deps: AppDeps = {}) {
   });
   app.get("/dev/dashboard/settings", async (c) => {
     const device = c.req.query("device") || undefined;
-    const saved = c.req.query("saved") === "1";
+    const flashQ = c.req.query("flash");
+    const flash = flashQ === "saved" || flashQ === "switched" ? flashQ : undefined;
+    const prev = c.req.query("prev") || undefined;
+    const switchNote = prev ? `Your in-progress bill will still be logged under ${prev}.` : undefined;
     const settingsData = await dashboardSettingsData(loadConfig(c.env), cloudBindings(c.env), device);
-    return c.html(renderDashboardSettingsPage(settingsData, device, saved));
+    return c.html(renderDashboardSettingsPage(settingsData, device, flash, switchNote));
   });
   app.post("/dev/dashboard/settings", async (c) => {
     const form = await c.req.formData().catch(() => null);
@@ -188,7 +195,27 @@ export function createApp(deps: AppDeps = {}) {
     });
     const params = new URLSearchParams();
     if (device) params.set("device", device);
-    params.set("saved", "1");
+    params.set("flash", "saved");
+    return c.redirect(`/dev/dashboard/settings?${params.toString()}`);
+  });
+  app.post("/dev/dashboard/switch-company", async (c) => {
+    const config = loadConfig(c.env);
+    const bindings = cloudBindings(c.env);
+    const form = await c.req.formData().catch(() => null);
+    const device = (typeof form?.get("device") === "string" ? (form.get("device") as string) : "") || undefined;
+    const businessId = form?.get("businessId");
+    if (typeof businessId !== "string" || businessId.trim() === "") {
+      return c.text("businessId required", 400);
+    }
+    const result = await switchDashboardCompany(config, bindings, device, businessId.trim());
+    if (!result.ok) return c.text("Not found", 404);
+    const params = new URLSearchParams();
+    if (device) params.set("device", device);
+    params.set("flash", "switched");
+    if (result.hadActiveDraft && result.previousCompanyName) {
+      params.set("draft", "1");
+      params.set("prev", result.previousCompanyName);
+    }
     return c.redirect(`/dev/dashboard/settings?${params.toString()}`);
   });
   app.get("/dev/dashboard/bills", async (c) => {
@@ -276,7 +303,7 @@ export function createApp(deps: AppDeps = {}) {
     };
     const data = await dashboardData(loadConfig(c.env), filters, cloudBindings(c.env), q.device || undefined);
     c.header("Content-Type", "text/csv; charset=utf-8");
-    c.header("Content-Disposition", `attachment; filename="${exportFileName(filters)}"`);
+    c.header("Content-Disposition", `attachment; filename="${exportFileName(filters, data.business?.name)}"`);
     return c.body(billsToCsv(data.business, data.rows));
   });
 
@@ -321,12 +348,53 @@ export function createApp(deps: AppDeps = {}) {
     });
     return c.json(await webAppState(config, aiBinding(c.env), device, cloudBindings(c.env)));
   });
+  app.post("/app/select-company", async (c) => {
+    const config = loadConfig(c.env);
+    const body = (await c.req.json().catch(() => ({}))) as { device?: unknown; businessId?: unknown };
+    if (typeof body.device !== "string" || body.device.trim() === "") {
+      return c.json({ error: "device required" }, 400);
+    }
+    if (typeof body.businessId !== "string" || body.businessId.trim() === "") {
+      return c.json({ error: "businessId required" }, 400);
+    }
+    const device = body.device.trim();
+    const ok = await webSelectCompany(config, aiBinding(c.env), device, cloudBindings(c.env), body.businessId.trim());
+    if (!ok) return c.json({ error: "company not found" }, 404);
+    return c.json(await webAppState(config, aiBinding(c.env), device, cloudBindings(c.env)));
+  });
+  app.post("/app/resolve-duplicate", async (c) => {
+    const config = loadConfig(c.env);
+    const body = (await c.req.json().catch(() => ({}))) as { device?: unknown; draftId?: unknown; action?: unknown };
+    if (typeof body.device !== "string" || body.device.trim() === "") {
+      return c.json({ error: "device required" }, 400);
+    }
+    if (typeof body.draftId !== "string" || body.draftId.trim() === "") {
+      return c.json({ error: "draftId required" }, 400);
+    }
+    if (body.action !== "keep" && body.action !== "discard") {
+      return c.json({ error: "action must be 'keep' or 'discard'" }, 400);
+    }
+    const device = body.device.trim();
+    const ok = await webResolveDuplicate(
+      config,
+      aiBinding(c.env),
+      device,
+      cloudBindings(c.env),
+      body.draftId.trim(),
+      body.action,
+    );
+    if (!ok) return c.json({ error: "no matching pending duplicate" }, 404);
+    return c.json(await webAppState(config, aiBinding(c.env), device, cloudBindings(c.env)));
+  });
   app.post("/app/photo", async (c) => {
     const config = loadConfig(c.env);
     const form = await c.req.formData().catch(() => null);
     const deviceRaw = form?.get("device");
     const device = typeof deviceRaw === "string" && deviceRaw.trim() !== "" ? deviceRaw.trim() : null;
     if (!device) return c.json({ error: "device required" }, 400);
+    if (!(await webHasBusiness(config, aiBinding(c.env), device, cloudBindings(c.env)))) {
+      return c.json({ error: "setup required" }, 400);
+    }
     let mediaId: string | null = null;
     let fileName: string | undefined;
     const file = form?.get("file");
@@ -352,6 +420,9 @@ export function createApp(deps: AppDeps = {}) {
       return c.json({ error: "device required" }, 400);
     }
     const device = body.device.trim();
+    if (!(await webHasBusiness(config, aiBinding(c.env), device, cloudBindings(c.env)))) {
+      return c.json({ error: "setup required" }, 400);
+    }
     await webManualEntry(config, aiBinding(c.env), device, cloudBindings(c.env));
     return c.json(await webAppState(config, aiBinding(c.env), device, cloudBindings(c.env)));
   });
@@ -364,8 +435,12 @@ export function createApp(deps: AppDeps = {}) {
     if (typeof body.text !== "string" || body.text.trim() === "") {
       return c.json({ error: "text required" }, 400);
     }
-    await webAction(config, aiBinding(c.env), body.device.trim(), body.text.trim(), cloudBindings(c.env));
-    return c.json(await webAppState(config, aiBinding(c.env), body.device.trim(), cloudBindings(c.env)));
+    const device = body.device.trim();
+    if (!(await webHasBusiness(config, aiBinding(c.env), device, cloudBindings(c.env)))) {
+      return c.json({ error: "setup required" }, 400);
+    }
+    await webAction(config, aiBinding(c.env), device, body.text.trim(), cloudBindings(c.env));
+    return c.json(await webAppState(config, aiBinding(c.env), device, cloudBindings(c.env)));
   });
 
   app.get("/health", (c) => {

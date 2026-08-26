@@ -6,12 +6,15 @@
  * - 2/3/5 → edit sub-flows (§6.3)
  * - 4 → skip / wrong bill (draft → expired)
  * - `help` → help text (draft stays active)
- *
- * TODO(M7): auto-log High + !machineRead extractions (§5.8) before the confirm
- * screen is even shown; duplicate-warning confirm/skip path.
+ * - awaiting_duplicate_confirm → "yes"/"no" resolves the business-scoped
+ *   duplicate check flagged in flows/photo.ts (checked first, ahead of the
+ *   numbered options, since it's a different reply vocabulary)
  */
 import type { DraftRecord } from "../db/drafts";
 import {
+  DUPLICATE_DISCARD_TEXT,
+  DUPLICATE_KEEP_TEXT,
+  DUPLICATE_RETRY_TEXT,
   HELP_TEXT,
   SETUP_NAME_PROMPT,
   SKIPPED_TEXT,
@@ -28,6 +31,21 @@ export async function handleDraftReply(
   deps: RouteDeps,
 ): Promise<void> {
   const text = (event.text ?? "").trim().toLowerCase();
+
+  // Business-scoped duplicate check (flows/photo.ts) — "yes"/"log anyway"/
+  // "keep" logs it as a separate bill, "no"/"discard"/"delete" drops it.
+  if (draft.flowState === "awaiting_duplicate_confirm") {
+    if (["yes", "log anyway", "keep"].includes(text)) {
+      await deps.drafts.resolveDuplicate(draft.id, "keep");
+      await deps.send.sendText(draft.userPhone, DUPLICATE_KEEP_TEXT);
+    } else if (["no", "discard", "delete"].includes(text)) {
+      await deps.drafts.resolveDuplicate(draft.id, "discard");
+      await deps.send.sendText(draft.userPhone, DUPLICATE_DISCARD_TEXT);
+    } else {
+      await deps.send.sendText(draft.userPhone, DUPLICATE_RETRY_TEXT);
+    }
+    return;
+  }
 
   // Editing sub-flows: the next message is the corrected value, except `4`
   // which every edit prompt documents as "cancel" — checked first so it

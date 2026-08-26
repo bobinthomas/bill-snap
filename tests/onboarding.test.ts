@@ -109,6 +109,7 @@ describe("onboarding (§4.5)", () => {
       autoSave: true,
       address: null,
       phone: null,
+      createdAt: business!.createdAt,
     });
     expect(send.sent).toHaveLength(1);
     expect(send.sent[0]?.text).toBe(WELCOME_TEXT);
@@ -215,10 +216,13 @@ describe("auto-log (§5.8)", () => {
     expect(await deps.drafts.findActiveDraft(PHONE)).not.toBeNull();
   });
 
-  it("skips auto-log when a duplicate invoice was logged recently", async () => {
-    const { store, send, deps } = await makeDeps({ known: true });
-    // Seed a logged transaction with the same invoice number, then the auto-log
-    // path must fall back to the confirm screen.
+  it("flags a duplicate (same amount + bill date, same business) instead of auto-logging", async () => {
+    const { users, store, send, deps } = await makeDeps({ known: true });
+    const businessId = (await users.findUser(PHONE))!.businessId!;
+    // Seed a logged transaction with the same amount + bill date, in the same
+    // business — the new business-scoped duplicate check must catch this
+    // ahead of the auto-log gate, landing on the duplicate-confirm prompt
+    // rather than either auto-logging or the ordinary confirm screen.
     const created = await store.createDraft({
       userPhone: PHONE,
       waMessageId: "wamid.dupseed",
@@ -230,11 +234,52 @@ describe("auto-log (§5.8)", () => {
       extraction: extraction(),
       gateLevel: "high",
       machineRead: false,
+      businessId,
     });
     await store.confirm(created!.id, new Date(), { autoLogged: true });
 
     await route(photoEvent("wamid.auto3"), deps);
-    expect(send.sent[1]?.text).toContain("📄 Bill Read");
+    expect(send.sent[1]?.text).toContain("⚠️ Possible duplicate");
+    expect(send.sent[1]?.text).not.toContain("✅ Logged:");
+    expect(send.sent[1]?.text).not.toContain("📄 Bill Read");
+    expect((await store.findActiveDraft(PHONE))?.flowState).toBe("awaiting_duplicate_confirm");
+  });
+
+  it("resolves a flagged duplicate via WhatsApp's 'yes'/'no' replies", async () => {
+    const { users, store, send, deps } = await makeDeps({ known: true });
+    const businessId = (await users.findUser(PHONE))!.businessId!;
+    const seed = async (waMessageId: string) => {
+      const created = await store.createDraft({
+        userPhone: PHONE,
+        waMessageId,
+        imageUrls: [],
+        flowExpiresAt: new Date(Date.now() + 600_000),
+      });
+      await store.setFlowState(created!.id, {
+        flowState: "awaiting_confirm",
+        extraction: extraction(),
+        gateLevel: "high",
+        machineRead: false,
+        businessId,
+      });
+      await store.confirm(created!.id, new Date(), { autoLogged: true });
+    };
+
+    // "yes" logs the flagged capture as a separate bill.
+    await seed("wamid.dupseed1");
+    await route(photoEvent("wamid.dup1"), deps);
+    expect((await store.findActiveDraft(PHONE))?.flowState).toBe("awaiting_duplicate_confirm");
+    await route(textEvent("yes"), deps);
+    expect(send.sent[send.sent.length - 1]?.text).toBe("✅ Logged as a separate bill.");
+    expect(await store.findActiveDraft(PHONE)).toBeNull();
+
+    // "no" discards it instead.
+    await seed("wamid.dupseed2");
+    await route(photoEvent("wamid.dup2"), deps);
+    expect((await store.findActiveDraft(PHONE))?.flowState).toBe("awaiting_duplicate_confirm");
+    await route(textEvent("no"), deps);
+    expect(send.sent[send.sent.length - 1]?.text).toBe("🗑️ Discarded — nothing was saved.");
+    expect(await store.findActiveDraft(PHONE)).toBeNull();
   });
 
   it("wires businesses.gst_registered into extraction", async () => {

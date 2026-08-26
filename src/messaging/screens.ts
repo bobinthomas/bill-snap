@@ -43,6 +43,10 @@ export const EDIT_CATEGORY_PROMPT =
 export const EDIT_CATEGORY_RETRY = "Reply with a category, e.g. `rent`, `utilities`, `wages`, `inventory`, or `misc`.";
 export const EDIT_CANCELLED_TEXT = "↩️ Edit cancelled.";
 
+export const DUPLICATE_KEEP_TEXT = "✅ Logged as a separate bill.";
+export const DUPLICATE_DISCARD_TEXT = "🗑️ Discarded — nothing was saved.";
+export const DUPLICATE_RETRY_TEXT = "Reply `yes` to log it anyway, or `no` to discard.";
+
 export const NUDGE_TEXT = "⏳ This bill isn't saved yet. Reply `1` to confirm, `2`/`3` to edit, or `4` to skip.";
 export const SKIPPED_TEXT = "❌ Skipped. Nothing was saved.";
 export const UNDO_NOTHING_TEXT = "Nothing to undo.";
@@ -113,6 +117,26 @@ export function renderLoggedReply(draft: DraftRecord, undoWindow: "24 hours" | "
   const gst = e?.gst.value;
   const gstPart = gst === null || gst === undefined ? "GST: —" : `GST: ${formatAUD(gst)}`;
   return `✅ Logged: ${formatAUD(amount)} | ${category} | ${vendor}. ${gstPart}. Reply \`delete\` within ${undoWindow} to undo.`;
+}
+
+/** Business-scoped duplicate check (§dev/dashboard bills, drafts.ts's
+ *  findDuplicateForBusiness). `existing` is the bill this capture collided
+ *  with — names it so the human can judge, since vendor isn't part of the
+ *  match itself. */
+export function renderDuplicateConfirmScreen(existing: DraftRecord): string {
+  const vendor = existing.extraction?.vendor.value ?? "—";
+  const amount = existing.extraction?.amount.value ?? null;
+  const billDate = existing.extraction?.date.value ?? "—";
+  const loggedAt = existing.confirmedAt ? existing.confirmedAt.toISOString().slice(0, 16).replace("T", " ") : "—";
+  return [
+    "⚠️ Possible duplicate",
+    "",
+    "This looks like a bill you've already logged:",
+    `${vendor} — ${amount === null ? "—" : formatAUD(amount)} on ${billDate}`,
+    `Logged ${loggedAt} by ${existing.userPhone}`,
+    "",
+    "Reply `yes` to log it anyway, or `no` to discard.",
+  ].join("\n");
 }
 
 export function formatAUD(n: number): string {

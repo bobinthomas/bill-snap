@@ -83,6 +83,7 @@ describe("route (§5.6)", () => {
       autoSave: true,
       address: null,
       phone: null,
+      createdAt: new Date(),
     });
     const drafts = new FakeDraftStore();
     const deps = {

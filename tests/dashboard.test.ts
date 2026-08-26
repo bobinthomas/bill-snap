@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config";
 import { billsToCsv, exportFileName, type LoggedBill } from "../src/dev/dashboard";
 import { demoDeps, DEMO_PHONE, resetDemo } from "../src/dev/demo";
+import { resolveBusiness } from "../src/flows/helpers";
 import { createApp } from "../src/index";
 
 const DASHBOARD_PASSWORD = "test-password";
@@ -40,9 +41,15 @@ async function logBill(text: string, confirmedAt: Date): Promise<void> {
 }
 
 /** Same as logBill, but for an arbitrary phone/device — and returns the
- *  transaction id (admin bills-table tests need it for edit/delete URLs). */
+ *  transaction id (admin bills-table tests need it for edit/delete URLs).
+ *  Resolves the phone's CURRENT business (the caller must have onboarded it
+ *  first — several tests deliberately log WITHOUT one, e.g. the
+ *  no-letterhead-without-a-business case) and stamps businessId, mirroring
+ *  what photo.ts's resolveBusiness + setFlowState({businessId}) actually
+ *  does — required now that dashboard reads are business-scoped. */
 async function logBillAs(phone: string, text: string, confirmedAt: Date): Promise<string> {
   const deps = demoDeps(loadConfig(ENV));
+  const business = await resolveBusiness(deps, phone);
   const outcome = await deps.extraction.run({ text });
   const draft = await deps.drafts.createDraft({
     userPhone: phone,
@@ -56,6 +63,7 @@ async function logBillAs(phone: string, text: string, confirmedAt: Date): Promis
     extraction: outcome.extraction,
     gateLevel: outcome.gate,
     machineRead: outcome.machineRead,
+    businessId: business?.id,
   });
   await deps.drafts.confirm(draft!.id, confirmedAt, { autoLogged: false });
   return draft!.id;
@@ -74,6 +82,7 @@ const SAMPLE_TEXTS = [
 ];
 
 async function logSixSampleBills(): Promise<void> {
+  await demoDeps(loadConfig(ENV)).businesses.onboard(DEMO_PHONE);
   for (let i = 0; i < SAMPLE_TEXTS.length; i++) {
     await logBill(SAMPLE_TEXTS[i]!, new Date(Date.now() - i * 86_400_000));
   }
@@ -236,22 +245,26 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
     const res = await app.request("/dev/dashboard/export.csv?month=2026-07", { headers: AUTH_HEADER }, ENV);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/csv");
-    expect(res.headers.get("content-disposition")).toContain('filename="bills-2026-07.csv"');
+    expect(res.headers.get("content-disposition")).toContain('filename="bills-my-business-2026-07.csv"');
 
     // The UTF-8 BOM is on the wire (text() decoders consume it — assert the raw bytes).
     const bytes = new Uint8Array(await res.arrayBuffer());
     expect([bytes[0], bytes[1], bytes[2]]).toEqual([0xef, 0xbb, 0xbf]);
     const csv = new TextDecoder().decode(bytes);
     const lines = csv.trimEnd().split("\r\n");
-    expect(lines[0]).toBe("Logged,Bill date,Vendor,Vendor resolved to,Category,Amount,GST,GST basis,Invoice,ABN,Source,Gate");
-    expect(lines).toHaveLength(2); // header + the single July bill
-    expect(lines[1]).toContain("2026-07-15");
-    expect(lines[1]).toContain("july-book");
-    expect(lines[1]).toContain("500.00");
+    // Letterhead (name + "Exported: …", no ABN/GST/address/phone set) + blank
+    // separator + column header, then the single July bill.
+    expect(lines[0]).toBe("My Business");
+    expect(lines[2]).toBe("");
+    expect(lines[3]).toBe("Logged,Bill date,Vendor,Vendor resolved to,Category,Amount,GST,GST basis,Invoice,ABN,Source,Gate");
+    expect(lines).toHaveLength(5);
+    expect(lines[4]).toContain("2026-07-15");
+    expect(lines[4]).toContain("july-book");
+    expect(lines[4]).toContain("500.00");
 
     // Unfiltered export carries every row (trailing CRLF trimmed first).
     const all = await app.request("/dev/dashboard/export.csv", { headers: AUTH_HEADER }, ENV);
-    expect((await all.text()).trimEnd().split("\r\n").length).toBe(8); // header + 7 bills
+    expect((await all.text()).trimEnd().split("\r\n").length).toBe(11); // 4 letterhead/header lines + 7 bills
   });
 
   it("quotes CSV fields containing commas or quotes and names files from filters", () => {
@@ -268,12 +281,14 @@ describe("dev analytics dashboard (/dev/dashboard)", () => {
       invoiceNumber: null,
       abn: null,
       autoLogged: false,
+      duplicateOfId: null,
     };
     const csv = billsToCsv(null, [bill]);
     expect(csv.slice(1)).toContain('"Acme, ""Supa"" Co"');
     expect(csv.endsWith("\r\n")).toBe(true);
     expect(exportFileName({ month: "2026-08", category: "utilities" })).toBe("bills-2026-08-utilities.csv");
     expect(exportFileName({})).toBe("bills.csv");
+    expect(exportFileName({ month: "2026-08" }, "Acme Pty Ltd")).toBe("bills-acme-pty-ltd-2026-08.csv");
   });
 
   it("reflects bills confirmed and undone in the demo console", async () => {
@@ -346,16 +361,16 @@ describe("dev settings page (/dev/dashboard/settings)", () => {
       ENV,
     );
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/dev/dashboard/settings?saved=1");
+    expect(res.headers.get("location")).toBe("/dev/dashboard/settings?flash=saved");
 
-    const saved = await (await get(app, "/dev/dashboard/settings?saved=1")).text();
+    const saved = await (await get(app, "/dev/dashboard/settings?flash=saved")).text();
     expect(saved).toContain("Saved.");
     expect(saved).toContain("Acme Pty Ltd");
     expect(saved).toContain("GST-9988");
     expect(saved).toContain("1 Example St, Sydney NSW");
     expect(saved).toContain("0400 000 111");
 
-    // The plain GET (no ?saved=1) reflects the same data without the banner.
+    // The plain GET (no ?flash=saved) reflects the same data without the banner.
     const plain = await (await get(app, "/dev/dashboard/settings")).text();
     expect(plain).not.toContain("Saved.");
     expect(plain).toContain("Acme Pty Ltd");
@@ -371,6 +386,117 @@ describe("dev settings page (/dev/dashboard/settings)", () => {
     expect(res.status).toBe(302); // still redirects — nothing to fail on
     const html = await (await get(app, "/dev/dashboard/settings")).text();
     expect(html).toContain("No business found for this device");
+  });
+
+  it("switch company changes what the dashboard/bills/CSV show for this device", async () => {
+    const OTHER = "61499999999";
+    const deps = demoDeps(loadConfig(ENV));
+    const { business: companyA } = await deps.businesses.onboard(DEMO_PHONE);
+    await deps.businesses.updateBusiness(companyA.id, { name: "Company A" });
+    const { business: companyB } = await deps.businesses.onboard(OTHER);
+    await deps.businesses.updateBusiness(companyB.id, { name: "Company B" });
+    await logBillAs(DEMO_PHONE, "internet 100 telstra gst", new Date());
+    await logBillAs(OTHER, "rent 2200 homebase", new Date());
+
+    const app = createApp();
+    // Before switching, this device only sees Company A's bill.
+    const before = await (await get(app, "/dev/dashboard/bills")).text();
+    expect(before).toMatch(/<td>[^<]*[Tt]elstra[^<]*<\/td>/);
+    expect(before).not.toMatch(/<td>[^<]*homebase[^<]*<\/td>/);
+
+    const res = await app.request(
+      "/dev/dashboard/switch-company",
+      {
+        method: "POST",
+        headers: { ...AUTH_HEADER, "content-type": "application/x-www-form-urlencoded" },
+        body: `businessId=${companyB.id}`,
+      },
+      ENV,
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/dev/dashboard/settings?flash=switched");
+
+    const settingsHtml = await (await get(app, "/dev/dashboard/settings?flash=switched")).text();
+    expect(settingsHtml).toContain("Switched to Company B.");
+
+    // After switching, the same device now sees ONLY Company B's bill.
+    const after = await (await get(app, "/dev/dashboard/bills")).text();
+    expect(after).toMatch(/<td>[^<]*homebase[^<]*<\/td>/);
+    expect(after).not.toMatch(/<td>[^<]*[Tt]elstra[^<]*<\/td>/);
+
+    const csv = await (await app.request("/dev/dashboard/export.csv", { headers: AUTH_HEADER }, ENV)).text();
+    expect(csv).toContain("Company B");
+    expect(csv).toContain("homebase");
+    expect(csv).not.toContain("telstra");
+  });
+
+  it("warns about an in-progress draft staying with the previous company when switching mid-capture", async () => {
+    const OTHER = "61499999999";
+    const deps = demoDeps(loadConfig(ENV));
+    const { business: companyA } = await deps.businesses.onboard(DEMO_PHONE);
+    await deps.businesses.updateBusiness(companyA.id, { name: "Company A" });
+    const { business: companyB } = await deps.businesses.onboard(OTHER);
+    await deps.businesses.updateBusiness(companyB.id, { name: "Company B" });
+
+    // An active (unconfirmed) draft for the demo phone.
+    await deps.drafts.createDraft({
+      userPhone: DEMO_PHONE,
+      waMessageId: "wamid.inflight",
+      imageUrls: [],
+      flowExpiresAt: new Date(Date.now() + 600_000),
+    });
+
+    const app = createApp();
+    const res = await app.request(
+      "/dev/dashboard/switch-company",
+      {
+        method: "POST",
+        headers: { ...AUTH_HEADER, "content-type": "application/x-www-form-urlencoded" },
+        body: `businessId=${companyB.id}`,
+      },
+      ENV,
+    );
+    const location = res.headers.get("location")!;
+    expect(location).toContain("draft=1");
+    expect(location).toContain("prev=Company+A");
+
+    const html = await (await app.request(location, { headers: AUTH_HEADER }, ENV)).text();
+    expect(html).toContain("Your in-progress bill will still be logged under Company A.");
+  });
+
+  it("lets a second device assigned to the SAME company see and edit the first device's bills", async () => {
+    const OTHER = "61499999998";
+    const deps = demoDeps(loadConfig(ENV));
+    const { business } = await deps.businesses.onboard(DEMO_PHONE);
+    const id = await logBillAs(DEMO_PHONE, "internet 100 telstra gst", new Date());
+
+    const app = createApp();
+    // Bind the second device to the SAME company via the switch-company route.
+    await app.request(
+      "/dev/dashboard/switch-company",
+      {
+        method: "POST",
+        headers: { ...AUTH_HEADER, "content-type": "application/x-www-form-urlencoded" },
+        body: `device=${OTHER}&businessId=${business.id}`,
+      },
+      ENV,
+    );
+
+    const otherBills = await (await get(app, `/dev/dashboard/bills?device=${OTHER}`)).text();
+    expect(otherBills).toMatch(/<td>[^<]*[Tt]elstra[^<]*<\/td>/);
+
+    // Device 2 can edit the bill device 1 captured — the whole point of
+    // multi-device-per-company.
+    const editRes = await app.request(
+      `/dev/dashboard/bills/${id}/edit`,
+      {
+        method: "POST",
+        headers: { ...AUTH_HEADER, "content-type": "application/x-www-form-urlencoded" },
+        body: `device=${OTHER}&vendor=Origin+Energy&category=utilities&amount=150`,
+      },
+      ENV,
+    );
+    expect(editRes.status).toBe(302);
   });
 });
 
@@ -494,7 +620,7 @@ describe("admin bills table (/dev/dashboard/bills)", () => {
 
     const html = await (await get(app, "/dev/dashboard/bills?flash=deleted")).text();
     expect(html).toContain("Bill deleted.");
-    expect(html).toContain("No bills logged yet.");
+    expect(html).toContain("No bills logged for My Business yet.");
     expect(html).toContain("Deleted");
   });
 

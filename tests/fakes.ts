@@ -10,21 +10,18 @@ import type {
   OnboardedUser,
   SetupStep,
 } from "../src/db/businesses";
-import {
-  isDuplicateMatch,
-  toDuplicateCandidate,
-  type ConfirmOptions,
-  type CreateDraftInput,
-  type DraftRecord,
-  type DraftStore,
-  type FlowPatch,
-  type LoggedBillPatch,
+import type {
+  ConfirmOptions,
+  CreateDraftInput,
+  DraftRecord,
+  DraftStore,
+  FlowPatch,
+  LoggedBillPatch,
 } from "../src/db/drafts";
 import type { TransactionStore } from "../src/db/transactions";
 import type { UserRecord, UserStore } from "../src/db/users";
 import type { RegularVendor, VendorCategorySuggestion } from "../src/extraction/vendor-categories";
 import type { BillStorage, UploadBillOptions, UploadedBill } from "../src/storage/bills";
-import type { BillExtraction } from "../src/types";
 
 /** Recording BillStorage double: serves deterministic paths/URLs, can be made to fail. */
 export class FakeBillStorage implements BillStorage {
@@ -138,6 +135,7 @@ export class FakeBusinessStore implements BusinessStore {
       autoSave: true,
       address: null,
       phone: null,
+      createdAt: new Date(),
     };
     this.businesses.set(id, business);
     const user: UserRecord = { phoneNumber, businessId: id, createdAt: new Date() };
@@ -181,6 +179,26 @@ export class FakeBusinessStore implements BusinessStore {
     list.push(member);
     this.memberships.set(businessId, list);
   }
+
+  async listAll(): Promise<BusinessRecord[]> {
+    return [...this.businesses.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async assignBusiness(phoneNumber: string, businessId: string): Promise<BusinessRecord | null> {
+    const business = this.businesses.get(businessId);
+    if (!business) return null;
+    const existing = await this.users.findUser(phoneNumber);
+    if (existing) {
+      Object.assign(existing, { businessId });
+    } else {
+      this.users.add({ phoneNumber, businessId, createdAt: new Date() });
+    }
+    const members = this.memberships.get(businessId) ?? [];
+    if (!members.some((m) => m.userPhone === phoneNumber)) {
+      this.addMember(businessId, { userPhone: phoneNumber, role: "owner", createdAt: new Date() });
+    }
+    return business;
+  }
 }
 
 /** Vendor->category history double — empty by default (unseeded tests just
@@ -217,6 +235,8 @@ export class FakeDraftStore implements DraftStore {
       flowState: "processing",
       status: "draft",
       createdAt: new Date(),
+      businessId: null,
+      duplicateOfId: null,
     };
     this.drafts.push(draft);
     return draft;
@@ -264,6 +284,18 @@ export class FakeDraftStore implements DraftStore {
     return this.logged(userPhone).slice(0, limit);
   }
 
+  async listLoggedForBusiness(businessId: string, limit = 100): Promise<DraftRecord[]> {
+    return this.drafts
+      .filter(
+        (d) =>
+          d.businessId === businessId &&
+          (d.status === "logged" || d.status === "paid") &&
+          d.confirmedAt !== undefined,
+      )
+      .sort((a, b) => (b.confirmedAt?.getTime() ?? 0) - (a.confirmedAt?.getTime() ?? 0))
+      .slice(0, limit);
+  }
+
   async getLogged(id: string): Promise<DraftRecord | null> {
     return this.drafts.find((d) => d.id === id && (d.status === "logged" || d.status === "paid")) ?? null;
   }
@@ -279,29 +311,35 @@ export class FakeDraftStore implements DraftStore {
       .sort((a, b) => (b.confirmedAt?.getTime() ?? 0) - (a.confirmedAt?.getTime() ?? 0));
   }
 
-  async findDuplicate(
-    userPhone: string,
-    extraction: BillExtraction,
-    within: Date,
+  async findDuplicateForBusiness(
+    businessId: string,
+    candidate: { amount: number; billDate: string; excludeId?: string },
   ): Promise<DraftRecord | null> {
-    const candidate = toDuplicateCandidate(extraction);
-    return (
-      this.drafts.find(
+    const targetCents = Math.round(candidate.amount * 100);
+    const matches = this.drafts
+      .filter(
         (d) =>
-          d.userPhone === userPhone &&
-          d.status === "logged" &&
-          d.confirmedAt !== undefined &&
-          d.confirmedAt >= within &&
-          d.extraction !== undefined &&
-          isDuplicateMatch(toDuplicateCandidate(d.extraction), candidate),
-      ) ?? null
-    );
+          d.businessId === businessId &&
+          (d.status === "logged" || d.status === "paid") &&
+          d.id !== candidate.excludeId &&
+          d.extraction?.date.value === candidate.billDate &&
+          d.extraction.amount.value !== null &&
+          Math.round(d.extraction.amount.value * 100) === targetCents,
+      )
+      .sort((a, b) => (b.confirmedAt?.getTime() ?? 0) - (a.confirmedAt?.getTime() ?? 0));
+    return matches[0] ?? null;
   }
 
   async softDeleteLogged(id: string): Promise<void> {
     const draft = this.drafts.find((d) => d.id === id);
     if (!draft) return;
     draft.status = "deleted";
+  }
+
+  async resolveDuplicate(id: string, action: "keep" | "discard"): Promise<DraftRecord | null> {
+    if (action === "keep") return this.confirm(id, new Date(), { autoLogged: false });
+    await this.expire(id);
+    return null;
   }
 
   async updateLogged(id: string, patch: LoggedBillPatch): Promise<DraftRecord | null> {

@@ -148,6 +148,70 @@ describe("BusinessStore (D1)", () => {
     expect(await store.getSetupStep(PHONE)).toBeNull();
     expect(await store.getSetupStep("61499999999")).toBeNull();
   });
+
+  it("listAll returns every company, name-ordered", async () => {
+    const db = createTestD1();
+    const store = createD1BusinessStore(db);
+    const a = await store.onboard(PHONE);
+    await store.updateBusiness(a.business.id, { name: "Zebra Co" });
+    const b = await store.onboard("61499999999");
+    await store.updateBusiness(b.business.id, { name: "Acme Co" });
+
+    const all = await store.listAll();
+    expect(all.map((c) => c.name)).toEqual(["Acme Co", "Zebra Co"]);
+  });
+
+  it("assignBusiness binds a NEW phone to an existing company (no new business row)", async () => {
+    const db = createTestD1();
+    const store = createD1BusinessStore(db);
+    const { business } = await store.onboard(PHONE);
+    const OTHER = "61499999999";
+
+    const bound = await store.assignBusiness(OTHER, business.id);
+    expect(bound?.id).toBe(business.id);
+
+    const count = await db.prepare("select count(*) as n from businesses").first<{ n: number }>();
+    expect(Number(count?.n)).toBe(1);
+    const members = await store.listMembers(business.id);
+    expect(members.map((m) => m.userPhone).sort()).toEqual([OTHER, PHONE].sort());
+  });
+
+  it("assignBusiness switches an ALREADY-onboarded phone to a different company", async () => {
+    const db = createTestD1();
+    const store = createD1BusinessStore(db);
+    const a = await store.onboard(PHONE);
+    const b = await store.onboard("61499999999");
+
+    const switched = await store.assignBusiness(PHONE, b.business.id);
+    expect(switched?.id).toBe(b.business.id);
+
+    const row = await db.prepare("select business_id from users where phone_number = ?").bind(PHONE).first<{
+      business_id: string;
+    }>();
+    expect(row?.business_id).toBe(b.business.id);
+    // The original company is untouched — this phone just moved.
+    expect((await store.findBusiness(a.business.id))?.id).toBe(a.business.id);
+  });
+
+  it("assignBusiness returns null for an unknown businessId", async () => {
+    const db = createTestD1();
+    const store = createD1BusinessStore(db);
+    expect(await store.assignBusiness(PHONE, "does-not-exist")).toBeNull();
+  });
+
+  it("assignBusiness is idempotent — switching to the same company twice adds no duplicate membership", async () => {
+    const db = createTestD1();
+    const store = createD1BusinessStore(db);
+    const { business } = await store.onboard(PHONE);
+    await store.assignBusiness(PHONE, business.id);
+    await store.assignBusiness(PHONE, business.id);
+
+    const count = await db
+      .prepare("select count(*) as n from memberships where business_id = ? and user_phone = ?")
+      .bind(business.id, PHONE)
+      .first<{ n: number }>();
+    expect(Number(count?.n)).toBe(1);
+  });
 });
 
 describe("isDuplicateMatch (§5.8 predicate)", () => {
@@ -398,6 +462,41 @@ describe("DraftStore (D1)", () => {
     expect(logged[0]?.confirmedAt).toEqual(new Date("2026-08-15T12:01:00.000Z"));
   });
 
+  it("listLoggedForBusiness scopes by company, newest first, same order as listLogged", async () => {
+    const { db, store } = makeStore();
+    seedUser(db, PHONE2, BIZ2);
+    const d1 = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState(d1!.id, { flowState: "awaiting_confirm", businessId: BIZ });
+    await store.confirm(d1!.id, new Date("2026-08-15T12:00:00.000Z"));
+
+    const d2 = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.2",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState(d2!.id, { flowState: "awaiting_confirm", businessId: BIZ });
+    await store.confirm(d2!.id, new Date("2026-08-15T13:00:00.000Z")); // newer
+
+    // A bill on a DIFFERENT business must not show up.
+    const d3 = await store.createDraft({
+      userPhone: PHONE2,
+      waMessageId: "wamid.3",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState(d3!.id, { flowState: "awaiting_confirm", businessId: BIZ2 });
+    await store.confirm(d3!.id, new Date("2026-08-15T14:00:00.000Z"));
+
+    const logged = await store.listLoggedForBusiness(BIZ);
+    expect(logged.map((d) => d.id)).toEqual([d2!.id, d1!.id]); // newest first
+  });
+
   it("getLogged only returns logged/paid rows", async () => {
     const { store } = makeStore();
     const draft = await store.createDraft({
@@ -498,7 +597,7 @@ describe("DraftStore (D1)", () => {
     expect(await store.updateLogged("does-not-exist", { amount: 1 })).toBeNull();
   });
 
-  it("findDuplicate checks invoice_number first, then vendor + amount", async () => {
+  it("findDuplicateForBusiness matches on amount + bill date within a business, no time window", async () => {
     const { store } = makeStore();
     const draft = await store.createDraft({
       userPhone: PHONE,
@@ -511,20 +610,162 @@ describe("DraftStore (D1)", () => {
       extraction: EXTRACTION,
       gateLevel: "high",
       machineRead: false,
+      businessId: BIZ,
     });
-    await store.confirm(draft!.id, new Date("2026-08-15T12:01:00.000Z"), { autoLogged: true });
+    // Confirmed months "ago" relative to the check below — no time window applies.
+    await store.confirm(draft!.id, new Date("2026-01-15T12:01:00.000Z"));
 
-    const dup = await store.findDuplicate(PHONE, EXTRACTION, new Date("2026-08-15T00:00:00.000Z"));
-    expect(dup?.status).toBe("logged");
+    const dup = await store.findDuplicateForBusiness(BIZ, {
+      amount: EXTRACTION.amount.value!,
+      billDate: EXTRACTION.date.value!,
+    });
+    expect(dup?.id).toBe(draft!.id);
 
-    // No invoice → vendor+amount fallback matches the same row.
-    const noInv: BillExtraction = { ...EXTRACTION, invoice_number: { value: null, confidence: 0 } };
-    const dup2 = await store.findDuplicate(PHONE, noInv, new Date("2026-08-15T00:00:00.000Z"));
-    expect(dup2?.id).toBe(draft!.id);
+    // A different amount on the same date is not a duplicate.
+    expect(
+      await store.findDuplicateForBusiness(BIZ, { amount: 999, billDate: EXTRACTION.date.value! }),
+    ).toBeNull();
 
-    // A different amount is not a duplicate.
-    const diff: BillExtraction = { ...noInv, amount: { value: 999, confidence: 0.98 } };
-    expect(await store.findDuplicate(PHONE, diff, new Date("2026-08-15T00:00:00.000Z"))).toBeNull();
+    // A different date with the same amount is not a duplicate.
+    expect(
+      await store.findDuplicateForBusiness(BIZ, { amount: EXTRACTION.amount.value!, billDate: "2020-01-01" }),
+    ).toBeNull();
+  });
+
+  it("findDuplicateForBusiness excludes the candidate's own id", async () => {
+    const { store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState(draft!.id, {
+      flowState: "awaiting_confirm",
+      extraction: EXTRACTION,
+      gateLevel: "high",
+      machineRead: false,
+      businessId: BIZ,
+    });
+    await store.confirm(draft!.id, new Date("2026-08-15T12:01:00.000Z"));
+
+    expect(
+      await store.findDuplicateForBusiness(BIZ, {
+        amount: EXTRACTION.amount.value!,
+        billDate: EXTRACTION.date.value!,
+        excludeId: draft!.id,
+      }),
+    ).toBeNull();
+  });
+
+  it("findDuplicateForBusiness is tolerant to float representation", async () => {
+    const { store } = makeStore();
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState(draft!.id, {
+      flowState: "awaiting_confirm",
+      extraction: { ...EXTRACTION, amount: { value: 1234.56, confidence: 0.98 } },
+      gateLevel: "high",
+      machineRead: false,
+      businessId: BIZ,
+    });
+    await store.confirm(draft!.id, new Date("2026-08-15T12:01:00.000Z"));
+
+    const dup = await store.findDuplicateForBusiness(BIZ, { amount: 1234.56, billDate: EXTRACTION.date.value! });
+    expect(dup?.id).toBe(draft!.id);
+  });
+
+  it("findDuplicateForBusiness does not match across businesses, or soft-deleted/expired rows", async () => {
+    const { db, store } = makeStore();
+    seedUser(db, PHONE2, BIZ2);
+    const draft = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.1",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState(draft!.id, {
+      flowState: "awaiting_confirm",
+      extraction: EXTRACTION,
+      gateLevel: "high",
+      machineRead: false,
+      businessId: BIZ,
+    });
+    await store.confirm(draft!.id, new Date("2026-08-15T12:01:00.000Z"));
+
+    const candidate = { amount: EXTRACTION.amount.value!, billDate: EXTRACTION.date.value! };
+    // A different business never sees it.
+    expect(await store.findDuplicateForBusiness(BIZ2, candidate)).toBeNull();
+
+    // Soft-deleted — no longer a match.
+    await store.softDeleteLogged(draft!.id);
+    expect(await store.findDuplicateForBusiness(BIZ, candidate)).toBeNull();
+
+    // Expired (never logged) drafts were never eligible in the first place.
+    const draft2 = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.2",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState(draft2!.id, {
+      flowState: "awaiting_confirm",
+      extraction: EXTRACTION,
+      businessId: BIZ,
+    });
+    await store.expire(draft2!.id);
+    expect(await store.findDuplicateForBusiness(BIZ, candidate)).toBeNull();
+  });
+
+  it("resolveDuplicate: keep logs the draft with duplicateOfId intact; discard expires it", async () => {
+    const { store } = makeStore();
+    const original = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.orig",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    await store.setFlowState(original!.id, { flowState: "awaiting_confirm", extraction: EXTRACTION, businessId: BIZ });
+    await store.confirm(original!.id, new Date("2026-08-15T12:01:00.000Z"));
+
+    const flagged = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.flagged",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T13:00:00.000Z"),
+    });
+    await store.setFlowState(flagged!.id, {
+      flowState: "awaiting_duplicate_confirm",
+      extraction: EXTRACTION,
+      businessId: BIZ,
+      duplicateOfId: original!.id,
+    });
+
+    const kept = await store.resolveDuplicate(flagged!.id, "keep");
+    expect(kept?.status).toBe("logged");
+    expect(kept?.duplicateOfId).toBe(original!.id);
+
+    // A second flagged draft, discarded instead.
+    const flagged2 = await store.createDraft({
+      userPhone: PHONE,
+      waMessageId: "wamid.flagged2",
+      imageUrls: [],
+      flowExpiresAt: new Date("2026-08-15T14:00:00.000Z"),
+    });
+    await store.setFlowState(flagged2!.id, {
+      flowState: "awaiting_duplicate_confirm",
+      extraction: EXTRACTION,
+      businessId: BIZ,
+      duplicateOfId: original!.id,
+    });
+    const discarded = await store.resolveDuplicate(flagged2!.id, "discard");
+    expect(discarded).toBeNull();
+    // The original this was flagged against is untouched.
+    expect((await store.getLogged(original!.id))?.status).toBe("logged");
   });
 
   it("findNudgeDue returns never-nudged drafts inside the window", async () => {

@@ -27,7 +27,6 @@ import type {
 } from "../db/drafts";
 import type { UserRecord, UserStore } from "../db/users";
 import type { BillStorage, UploadBillOptions, UploadedBill } from "../storage/bills";
-import type { BillExtraction } from "../types";
 
 export interface MemoryStack {
   users: UserStore;
@@ -103,6 +102,7 @@ class MemoryBusinessStore implements BusinessStore {
       autoSave: true,
       address: null,
       phone: null,
+      createdAt: new Date(),
     };
     this.businesses.set(business.id, business);
     const user: UserRecord = { phoneNumber, businessId: business.id, createdAt: new Date() };
@@ -136,6 +136,23 @@ class MemoryBusinessStore implements BusinessStore {
   async listMembers(businessId: string): Promise<MembershipRecord[]> {
     return this.memberships.get(businessId) ?? [];
   }
+
+  async listAll(): Promise<BusinessRecord[]> {
+    return [...this.businesses.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async assignBusiness(phoneNumber: string, businessId: string): Promise<BusinessRecord | null> {
+    const business = this.businesses.get(businessId);
+    if (!business) return null;
+    const existing = await this.users.findUser(phoneNumber);
+    this.users.register({ phoneNumber, businessId, createdAt: existing?.createdAt ?? new Date() });
+    const members = this.memberships.get(businessId) ?? [];
+    if (!members.some((m) => m.userPhone === phoneNumber)) {
+      members.push({ userPhone: phoneNumber, role: "owner", createdAt: new Date() });
+      this.memberships.set(businessId, members);
+    }
+    return business;
+  }
 }
 
 class MemoryDraftStore implements DraftStore {
@@ -155,6 +172,8 @@ class MemoryDraftStore implements DraftStore {
       flowState: "processing",
       status: "draft",
       createdAt: new Date(),
+      businessId: null,
+      duplicateOfId: null,
     };
     this.drafts.push(draft);
     return draft;
@@ -202,6 +221,18 @@ class MemoryDraftStore implements DraftStore {
     return this.logged(userPhone).slice(0, limit);
   }
 
+  async listLoggedForBusiness(businessId: string, limit = 100): Promise<DraftRecord[]> {
+    return this.drafts
+      .filter(
+        (d) =>
+          d.businessId === businessId &&
+          (d.status === "logged" || d.status === "paid") &&
+          d.confirmedAt !== undefined,
+      )
+      .sort((a, b) => (b.confirmedAt?.getTime() ?? 0) - (a.confirmedAt?.getTime() ?? 0))
+      .slice(0, limit);
+  }
+
   async getLogged(id: string): Promise<DraftRecord | null> {
     const draft = this.drafts.find((d) => d.id === id && (d.status === "logged" || d.status === "paid"));
     return draft ?? null;
@@ -218,24 +249,34 @@ class MemoryDraftStore implements DraftStore {
       .sort((a, b) => (b.confirmedAt?.getTime() ?? 0) - (a.confirmedAt?.getTime() ?? 0));
   }
 
-  async findDuplicate(userPhone: string, extraction: BillExtraction, within: Date): Promise<DraftRecord | null> {
-    const candidate = toCandidate(extraction);
-    return (
-      this.drafts.find(
+  async findDuplicateForBusiness(
+    businessId: string,
+    candidate: { amount: number; billDate: string; excludeId?: string },
+  ): Promise<DraftRecord | null> {
+    const targetCents = Math.round(candidate.amount * 100);
+    const matches = this.drafts
+      .filter(
         (d) =>
-          d.userPhone === userPhone &&
-          d.status === "logged" &&
-          d.confirmedAt !== undefined &&
-          d.confirmedAt >= within &&
-          d.extraction !== undefined &&
-          matches(toCandidate(d.extraction), candidate),
-      ) ?? null
-    );
+          d.businessId === businessId &&
+          (d.status === "logged" || d.status === "paid") &&
+          d.id !== candidate.excludeId &&
+          d.extraction?.date.value === candidate.billDate &&
+          d.extraction.amount.value !== null &&
+          Math.round(d.extraction.amount.value * 100) === targetCents,
+      )
+      .sort((a, b) => (b.confirmedAt?.getTime() ?? 0) - (a.confirmedAt?.getTime() ?? 0));
+    return matches[0] ?? null;
   }
 
   async softDeleteLogged(id: string): Promise<void> {
     const draft = this.drafts.find((d) => d.id === id);
     if (draft) draft.status = "deleted";
+  }
+
+  async resolveDuplicate(id: string, action: "keep" | "discard"): Promise<DraftRecord | null> {
+    if (action === "keep") return this.confirm(id, new Date(), { autoLogged: false });
+    await this.expire(id);
+    return null;
   }
 
   async updateLogged(id: string, patch: LoggedBillPatch): Promise<DraftRecord | null> {
@@ -339,19 +380,3 @@ export class MemoryBillStorage implements BillStorage {
   }
 }
 
-function toCandidate(e: BillExtraction): { invoiceNumber: string | null; vendor: string | null; amount: number | null } {
-  return { invoiceNumber: e.invoice_number.value, vendor: e.vendor.value, amount: e.amount.value };
-}
-
-function matches(
-  prev: { invoiceNumber: string | null; vendor: string | null; amount: number | null },
-  candidate: { invoiceNumber: string | null; vendor: string | null; amount: number | null },
-): boolean {
-  if (candidate.invoiceNumber !== null && prev.invoiceNumber === candidate.invoiceNumber) return true;
-  return (
-    candidate.vendor !== null &&
-    candidate.amount !== null &&
-    prev.vendor === candidate.vendor &&
-    prev.amount === candidate.amount
-  );
-}

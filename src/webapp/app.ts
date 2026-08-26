@@ -196,6 +196,62 @@ export async function webSetup(
   });
 }
 
+/**
+ * True once this device has a business assigned. `/app/photo`, `/app/manual`,
+ * and `/app/action` require this before routing into the shared pipeline —
+ * otherwise an unknown device would silently auto-onboard a blank company via
+ * `handleOnboarding` (the router's shared first-contact path, correct for
+ * WhatsApp which has no setup-screen equivalent, wrong here since it would
+ * bypass the setup/company-picker screen and pollute listAll()'s picker with
+ * junk "My Business" entries).
+ */
+export async function webHasBusiness(
+  config: AppConfig,
+  ai: WorkersAi | undefined,
+  deviceId: string,
+  bindings?: CloudBindings,
+): Promise<boolean> {
+  const deps = webDeps(config, ai, deviceId, bindings);
+  const user = await deps.users.findUser(deviceId);
+  return Boolean(user?.businessId);
+}
+
+/** Binds this device to an EXISTING company (the onboarding picker's
+ *  "select existing" path, and the only way besides Settings' switcher to
+ *  change which company a device posts to). False when businessId doesn't
+ *  exist — distinct from webSetup, which always creates a NEW company. */
+export async function webSelectCompany(
+  config: AppConfig,
+  ai: WorkersAi | undefined,
+  deviceId: string,
+  bindings: CloudBindings | undefined,
+  businessId: string,
+): Promise<boolean> {
+  const deps = webDeps(config, ai, deviceId, bindings);
+  const business = await deps.businesses.assignBusiness(deviceId, businessId);
+  return business !== null;
+}
+
+/** Resolves the device's pendingDuplicate card. Returns false when the
+ *  draft isn't actually awaiting_duplicate_confirm (stale click). */
+export async function webResolveDuplicate(
+  config: AppConfig,
+  ai: WorkersAi | undefined,
+  deviceId: string,
+  bindings: CloudBindings | undefined,
+  draftId: string,
+  action: "keep" | "discard",
+): Promise<boolean> {
+  const deps = webDeps(config, ai, deviceId, bindings);
+  const draft = await deps.drafts.findActiveDraft(deviceId);
+  if (!draft || draft.id !== draftId || draft.flowState !== "awaiting_duplicate_confirm") return false;
+  await deps.drafts.resolveDuplicate(draftId, action);
+  const list = replies.get(deviceId) ?? [];
+  list.push(action === "keep" ? "Logged as a separate bill." : "Discarded.");
+  replies.set(deviceId, list);
+  return true;
+}
+
 /** Stash uploaded image bytes so the photo flow's downloadMedia finds them. */
 export function stashWebMedia(
   deviceId: string,
@@ -278,9 +334,13 @@ async function webDelete(
   bindings?: CloudBindings,
 ): Promise<void> {
   const deps = webDeps(config, ai, deviceId, bindings);
-  const bill = (await deps.drafts.listLogged(deviceId, 20)).find((entry) => entry.id === billId);
+  const user = await deps.users.findUser(deviceId);
+  const business = user?.businessId ? await deps.businesses.findBusiness(user.businessId) : null;
+  const bill = await deps.drafts.getLogged(billId);
   const cutoff = Date.now() - WEB_DELETE_WINDOW_MS;
-  if (!bill?.confirmedAt || bill.confirmedAt.getTime() < cutoff) {
+  // Same tenant check as the admin dashboard's edit/delete (§dev/dashboard
+  // bills): scoped by the device's CURRENT company, not by who captured it.
+  if (!bill || bill.businessId !== business?.id || !bill.confirmedAt || bill.confirmedAt.getTime() < cutoff) {
     const list = replies.get(deviceId) ?? [];
     list.push("Delete window expired.");
     replies.set(deviceId, list);
@@ -326,6 +386,19 @@ export interface WebAppState {
    *  completed once (no business record exists yet) — the capture UI stays
    *  gated behind the setup screen while this is true. */
   needsSetup: boolean;
+  /** Existing companies to pick from during first-run setup — only
+   *  populated while needsSetup is true (no point re-querying every poll
+   *  once a business is set). */
+  companies?: Array<{ id: string; name: string; createdAt: string }>;
+  /** Set when the active draft is awaiting_duplicate_confirm (flows/photo.ts's
+   *  business-scoped duplicate check) — the bill it collided with. */
+  pendingDuplicate?: {
+    draftId: string;
+    vendor: string | null;
+    amount: number | null;
+    billDate: string | null;
+    existingConfirmedAt: string | null;
+  };
   draft: WebDraftState | null;
   recent: Array<{
     id: string;
@@ -366,10 +439,24 @@ export async function webAppState(
   const id = deviceId ?? "web_unknown";
   const deps = webDeps(config, ai, id, bindings);
   const draft = await deps.drafts.findActiveDraft(id);
-  const recent = await deps.drafts.listLogged(id, 20);
   const list = replies.get(id) ?? [];
   const user = await deps.users.findUser(id);
   const business = user?.businessId ? await deps.businesses.findBusiness(user.businessId) : null;
+  const recent = business ? await deps.drafts.listLoggedForBusiness(business.id, 20) : [];
+  const companies = business === null ? await deps.businesses.listAll() : undefined;
+  const pendingDuplicate =
+    draft?.flowState === "awaiting_duplicate_confirm" && draft.duplicateOfId
+      ? await (async () => {
+          const existing = await deps.drafts.getLogged(draft.duplicateOfId!);
+          return {
+            draftId: draft.id,
+            vendor: existing?.extraction?.vendor.value ?? null,
+            amount: existing?.extraction?.amount.value ?? null,
+            billDate: existing?.extraction?.date.value ?? null,
+            existingConfirmedAt: existing?.confirmedAt?.toISOString() ?? null,
+          };
+        })()
+      : undefined;
   return {
     deviceId: id,
     persistence: bindings?.db ? "d1" : "in-memory",
@@ -382,6 +469,8 @@ export async function webAppState(
     ocrRead: ocrReads.get(id) ?? null,
     autoSave: business?.autoSave ?? true,
     needsSetup: business === null,
+    companies: companies?.map((c) => ({ id: c.id, name: c.name, createdAt: c.createdAt.toISOString() })),
+    pendingDuplicate,
     draft: draft
       ? {
           id: draft.id,
@@ -659,6 +748,37 @@ const WEB_APP_PAGE = `<!doctype html>
   .setup-check input { width: 17px; height: 17px; accent-color: var(--blue); }
   .setup-check label { font-size: 14px; }
   .setup-error { display: none; color: var(--red); font-size: 13px; margin: -6px 0 14px; }
+
+  .company-list { margin-bottom: 18px; }
+  .company-row {
+    display: flex; align-items: center; justify-content: space-between; width: 100%;
+    padding: 14px 16px; border-radius: var(--radius-md); background: var(--bg-elevated);
+    border: 1px solid var(--hairline-soft); margin-bottom: 8px; cursor: pointer; font: inherit; color: inherit; text-align: left;
+  }
+  .company-row:active { transform: scale(.98); }
+  .company-row .company-name { font-size: 15px; font-weight: 600; }
+  .company-row .company-meta { font-size: 12px; color: var(--label-secondary); margin-top: 2px; }
+  .company-row .chev { color: var(--label-secondary); flex: none; margin-left: 10px; }
+  .company-row .chev .icon { width: 16px; height: 16px; }
+  #showAddCompany {
+    display: block; margin: 4px 0 20px; font-size: 13px; font-weight: 600;
+    color: var(--blue); cursor: pointer; background: none; border: none; font-family: inherit; padding: 0;
+  }
+
+  #dupOverlay {
+    display: none; position: fixed; inset: 0; z-index: 35; align-items: center; justify-content: center; padding: 20px;
+    background: rgba(0,0,0,0.55);
+  }
+  .dup-card { padding: 20px; text-align: center; max-width: 360px; width: 100%; border-radius: var(--radius-xl); border: 1px solid var(--hairline-soft); background: var(--bg-elevated); }
+  .dup-card .dup-icon { color: var(--orange); margin-bottom: 6px; }
+  .dup-card .dup-icon .icon { width: 26px; height: 26px; }
+  .dup-card h2 { font-size: 17px; margin: 4px 0 6px; }
+  .dup-card p { font-size: 13.5px; color: var(--label-secondary); line-height: 1.5; margin: 0 0 4px; }
+  .dup-card .dup-existing { font-size: 14px; font-weight: 600; color: var(--label); margin: 10px 0 18px; }
+  .dup-actions { display: flex; gap: 10px; }
+  .dup-actions button { flex: 1; height: 46px; border-radius: var(--radius-md); font-size: 14px; font-weight: 700; cursor: pointer; }
+  .dup-actions .keep { background: #ffffff; color: #000000; }
+  .dup-actions .discard { background: var(--bg-elevated-2); color: var(--label); border: 1px solid var(--hairline-soft); }
 </style>
 </head>
 <body>
@@ -729,20 +849,36 @@ const WEB_APP_PAGE = `<!doctype html>
     <div class="setup-inner">
       <span class="eyebrow"><span class="dot"></span>Set up your company</span>
       <h1>Welcome to BillSnap</h1>
-      <p>Tell us about your company first — these details become the letterhead on your monthly export.</p>
-      <div class="setup-field"><label for="setupName">Company name *</label><input id="setupName" placeholder="e.g. Acme Pty Ltd" /></div>
-      <div class="setup-row">
-        <div class="setup-field"><label for="setupAbn">ABN</label><input id="setupAbn" placeholder="Optional" /></div>
-        <div class="setup-field"><label for="setupGstNumber">GST number</label><input id="setupGstNumber" placeholder="Optional" /></div>
+      <p id="setupIntro">Tell us about your company first — these details become the letterhead on your monthly export.</p>
+      <div id="companyList" class="company-list" hidden></div>
+      <button id="showAddCompany" hidden>+ Add a new company</button>
+      <div id="addCompanyForm">
+        <div class="setup-field"><label for="setupName">Company name *</label><input id="setupName" placeholder="e.g. Acme Pty Ltd" /></div>
+        <div class="setup-row">
+          <div class="setup-field"><label for="setupAbn">ABN</label><input id="setupAbn" placeholder="Optional" /></div>
+          <div class="setup-field"><label for="setupGstNumber">GST number</label><input id="setupGstNumber" placeholder="Optional" /></div>
+        </div>
+        <div class="setup-field"><label for="setupAddress">Address</label><input id="setupAddress" placeholder="Optional" /></div>
+        <div class="setup-row">
+          <div class="setup-field"><label for="setupPhone">Phone number</label><input id="setupPhone" placeholder="Optional" /></div>
+          <div class="setup-field"><label for="setupTimezone">Timezone</label><input id="setupTimezone" value="Australia/Sydney" /></div>
+        </div>
+        <div class="setup-check"><input id="setupGst" type="checkbox" checked /><label for="setupGst">GST registered</label></div>
+        <div class="setup-error" id="setupError"></div>
+        <button class="btn-primary" id="setupSave">Get started</button>
       </div>
-      <div class="setup-field"><label for="setupAddress">Address</label><input id="setupAddress" placeholder="Optional" /></div>
-      <div class="setup-row">
-        <div class="setup-field"><label for="setupPhone">Phone number</label><input id="setupPhone" placeholder="Optional" /></div>
-        <div class="setup-field"><label for="setupTimezone">Timezone</label><input id="setupTimezone" value="Australia/Sydney" /></div>
+    </div>
+  </div>
+  <div id="dupOverlay">
+    <div class="dup-card">
+      <div class="dup-icon">${iconAlertTriangle}</div>
+      <h2>Possible duplicate</h2>
+      <p>This looks like a bill you've already logged:</p>
+      <div class="dup-existing" id="dupExisting"></div>
+      <div class="dup-actions">
+        <button class="discard" id="dupDiscard">Discard</button>
+        <button class="keep" id="dupKeep">Log anyway</button>
       </div>
-      <div class="setup-check"><input id="setupGst" type="checkbox" checked /><label for="setupGst">GST registered</label></div>
-      <div class="setup-error" id="setupError"></div>
-      <button class="btn-primary" id="setupSave">Get started</button>
     </div>
   </div>
 <script>
@@ -847,9 +983,80 @@ const WEB_APP_PAGE = `<!doctype html>
     return '<span class="' + cls + '">' + esc(text) + "</span>";
   }
 
+  function renderCompanyPicker(companies) {
+    const list = $("companyList");
+    const toggle = $("showAddCompany");
+    const form = $("addCompanyForm");
+    const intro = $("setupIntro");
+    if (companies.length > 0) {
+      list.hidden = false;
+      list.innerHTML = companies.map(function (c) {
+        const added = new Date(c.createdAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+        return '<button class="company-row" data-id="' + esc(c.id) + '" type="button">' +
+          '<div><div class="company-name">' + esc(c.name) + '</div><div class="company-meta">Added ' + added + '</div></div>' +
+          '<span class="chev">' + ICON_CHEV + '</span></button>';
+      }).join("");
+      list.querySelectorAll(".company-row").forEach(function (btn) {
+        btn.onclick = async () => {
+          btn.disabled = true;
+          try {
+            const res = await fetch("/app/select-company", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ device, businessId: btn.dataset.id }),
+            });
+            if (res.ok) render(await res.json());
+          } finally {
+            btn.disabled = false;
+          }
+        };
+      });
+      toggle.hidden = false;
+      form.hidden = true;
+      intro.textContent = "Select your company, or add a new one.";
+      toggle.onclick = () => {
+        form.hidden = false;
+        toggle.hidden = true;
+      };
+    } else {
+      list.hidden = true;
+      toggle.hidden = true;
+      form.hidden = false;
+    }
+  }
+
+  function renderDuplicateCard(pending) {
+    const overlay = $("dupOverlay");
+    if (!pending) {
+      overlay.style.display = "none";
+      return;
+    }
+    overlay.style.display = "flex";
+    const parts = [];
+    if (pending.vendor) parts.push(esc(pending.vendor));
+    if (pending.amount != null) parts.push(money(pending.amount));
+    if (pending.billDate) parts.push("on " + esc(pending.billDate));
+    $("dupExisting").textContent = parts.length ? parts.join(" — ") : "an earlier bill";
+    $("dupKeep").onclick = () => resolveDuplicate(pending.draftId, "keep");
+    $("dupDiscard").onclick = () => resolveDuplicate(pending.draftId, "discard");
+  }
+
+  async function resolveDuplicate(draftId, action) {
+    const res = await fetch("/app/resolve-duplicate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ device, draftId, action }),
+    });
+    if (res.ok) render(await res.json());
+  }
+
   function render(s) {
     $("setupScreen").style.display = s.needsSetup ? "block" : "none";
-    if (s.needsSetup) return;
+    if (s.needsSetup) {
+      renderCompanyPicker(s.companies || []);
+      return;
+    }
+    renderDuplicateCard(s.pendingDuplicate);
     autoSave = s.autoSave;
     const toggle = $("autosaveToggle");
     toggle.innerHTML = (autoSave ? ICON_CHECK : ICON_CROSS) + "<span>Auto-save " + (autoSave ? "On" : "Off") + "</span>";

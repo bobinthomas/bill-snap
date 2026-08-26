@@ -65,6 +65,10 @@ export interface LoggedBill {
   abn: string | null;
   autoLogged: boolean;
   gateLevel?: string;
+  /** Set when this bill was flagged as a possible duplicate at capture time
+   *  (§dev/dashboard bills, drafts.ts's findDuplicateForBusiness) — the id
+   *  of the bill it collided with. */
+  duplicateOfId: string | null;
 }
 
 export interface DashboardFilters {
@@ -116,10 +120,8 @@ export async function dashboardData(
   userPhone: string = DEMO_PHONE,
 ): Promise<DashboardData> {
   const deps = demoDeps(config, undefined, bindings);
-  const [bills, business] = await Promise.all([
-    deps.drafts.listLogged(userPhone),
-    resolveBusiness(deps, userPhone),
-  ]);
+  const business = await resolveBusiness(deps, userPhone);
+  const bills = business ? await deps.drafts.listLoggedForBusiness(business.id) : [];
 
   const months = [...new Set(bills.map((b) => b.confirmedAt?.toISOString().slice(0, 7)))]
     .filter((m): m is string => m !== undefined)
@@ -252,6 +254,7 @@ function toLoggedBill(b: DraftRecord): LoggedBill {
     abn: b.extraction?.abn.value ?? null,
     autoLogged: b.autoLogged ?? false,
     gateLevel: b.gateLevel,
+    duplicateOfId: b.duplicateOfId,
   };
 }
 
@@ -315,9 +318,15 @@ function csvCell(v: string): string {
 }
 
 /** Download filename from the active filters — e.g. bills-2026-08-utilities.csv. */
-export function exportFileName(filters: DashboardFilters): string {
+/** businessName is included so two companies' exports aren't otherwise
+ *  identically-named files (e.g. bills-2026-08.csv for both). */
+export function exportFileName(filters: DashboardFilters, businessName?: string | null): string {
   const parts = ["bills"];
-  const clean = (s: string) => s.replace(/[^A-Za-z0-9-]+/g, "-").toLowerCase();
+  const clean = (s: string) => s.replace(/[^A-Za-z0-9-]+/g, "-").toLowerCase().replace(/^-+|-+$/g, "");
+  if (businessName) {
+    const slug = clean(businessName);
+    if (slug) parts.push(slug);
+  }
   if (filters.month) parts.push(filters.month);
   if (filters.category) parts.push(clean(filters.category));
   if (filters.vendor) parts.push(clean(filters.vendor));
@@ -462,8 +471,8 @@ ${PREMIUM_STYLES}
       '<span class="count">' + (d.count || "") + '</span><span class="date">' + label(d) + "</span></div>"
     ).join("") + "</div>";
   }
-  function table(bills) {
-    if (!bills.length) return '<div class="empty">Nothing logged yet.</div>';
+  function table(bills, businessName) {
+    if (!bills.length) return '<div class="empty">No bills logged for ' + esc(businessName || "this company") + ' yet.</div>';
     return '<div class="table-scroll"><table><thead><tr><th>Logged</th><th>Bill date</th><th>Vendor</th><th>Category</th>' +
       '<th class="num">Amount</th><th class="num">GST</th><th>Invoice</th><th>ABN</th><th>Source</th></tr></thead><tbody>' +
       bills.map((b) => {
@@ -501,7 +510,7 @@ ${PREMIUM_STYLES}
           .toLocaleString("en-AU", { month: "long", year: "numeric" }) + " — daily"
       : "Last 7 days";
     $("days").innerHTML = days(d.days, d.filters.month !== null);
-    $("recent").innerHTML = table(d.recent);
+    $("recent").innerHTML = table(d.recent, d.business ? d.business.name : null);
   }
   function fillSelect(id, label, values, current) {
     const el = $(id);
@@ -564,11 +573,14 @@ export interface DashboardSettingsData {
   business: BusinessRecord | null;
   regularVendors: RegularVendor[];
   members: MembershipRecord[];
+  /** Every company in the system — the "Switch company" select's source list. */
+  allCompanies: BusinessRecord[];
 }
 
 /** Fetches everything the settings page shows for the business behind
  *  `device` (default the demo phone): the business record, its regular
- *  vendors (episodic memory, §extraction/vendor-categories), and its team. */
+ *  vendors (episodic memory, §extraction/vendor-categories), its team, and
+ *  the full company list for the switcher. */
 export async function dashboardSettingsData(
   config: AppConfig,
   bindings?: CloudBindings,
@@ -576,12 +588,13 @@ export async function dashboardSettingsData(
 ): Promise<DashboardSettingsData> {
   const deps = demoDeps(config, undefined, bindings);
   const business = await resolveBusiness(deps, userPhone);
-  if (!business) return { business: null, regularVendors: [], members: [] };
+  const allCompanies = await deps.businesses.listAll();
+  if (!business) return { business: null, regularVendors: [], members: [], allCompanies };
   const [regularVendors, members] = await Promise.all([
     deps.transactions.getRegularVendors(business.id),
     deps.businesses.listMembers(business.id),
   ]);
-  return { business, regularVendors, members };
+  return { business, regularVendors, members, allCompanies };
 }
 
 /** Persists the settings page's company-details form. Returns false (no-op)
@@ -597,6 +610,37 @@ export async function saveDashboardSettings(
   if (!business) return false;
   await deps.businesses.updateBusiness(business.id, patch);
   return true;
+}
+
+export interface SwitchCompanyResult {
+  ok: boolean;
+  /** The company this device was on before the switch, if any — used to
+   *  warn about an in-progress draft that won't move with the switch. */
+  previousCompanyName: string | null;
+  /** True when the device had an active (not-yet-confirmed) draft at the
+   *  moment of switching — it stays tied to the PREVIOUS company. */
+  hadActiveDraft: boolean;
+}
+
+/** Switches this device to an EXISTING company (§dev/dashboard/settings'
+ *  "Switch company" control — the admin-side counterpart to /app/select-
+ *  company). Resolves the current business and any in-progress draft
+ *  BEFORE switching, since both facts are only available pre-switch. */
+export async function switchDashboardCompany(
+  config: AppConfig,
+  bindings: CloudBindings | undefined,
+  userPhone: string = DEMO_PHONE,
+  businessId: string,
+): Promise<SwitchCompanyResult> {
+  const deps = demoDeps(config, undefined, bindings);
+  const previous = await resolveBusiness(deps, userPhone);
+  const activeDraft = await deps.drafts.findActiveDraft(userPhone);
+  const business = await deps.businesses.assignBusiness(userPhone, businessId);
+  return {
+    ok: business !== null,
+    previousCompanyName: previous?.name ?? null,
+    hadActiveDraft: activeDraft !== null,
+  };
 }
 
 function dashboardAuditStore(bindings?: CloudBindings) {
@@ -622,7 +666,7 @@ export async function dashboardBillsData(
   const business = await resolveBusiness(deps, userPhone);
   if (!business) return { business: null, bills: [], auditLog: [] };
   const [logged, auditLog] = await Promise.all([
-    deps.drafts.listLogged(userPhone, 500),
+    deps.drafts.listLoggedForBusiness(business.id, 500),
     dashboardAuditStore(bindings).listRecent(business.id, 50),
   ]);
   return { business, bills: logged.map(toLoggedBill), auditLog };
@@ -636,7 +680,7 @@ export interface DashboardBillData {
 /** Single logged bill for the admin edit form's prefill — see
  *  saveDashboardBillEdit's doc comment for the tenant-check rationale.
  *  `bill: null` with a non-null `business` means the id doesn't exist, isn't
- *  logged/paid, or belongs to another device — the route treats that as 404. */
+ *  logged/paid, or belongs to another company — the route treats that as 404. */
 export async function dashboardBillData(
   config: AppConfig,
   bindings: CloudBindings | undefined,
@@ -647,7 +691,7 @@ export async function dashboardBillData(
   const business = await resolveBusiness(deps, userPhone);
   if (!business) return { business: null, bill: null };
   const record = await deps.drafts.getLogged(id);
-  if (!record || record.userPhone !== userPhone) return { business, bill: null };
+  if (!record || record.businessId !== business.id) return { business, bill: null };
   return { business, bill: toLoggedBill(record) };
 }
 
@@ -680,11 +724,11 @@ function extractionField(e: DraftRecord["extraction"], key: EditableBillField): 
  * Applies an admin correction to a logged bill (§dev/dashboard bills table)
  * and records an audit entry for whichever fields actually changed — a
  * no-op patch (resubmitting the same values) logs nothing. The tenant check
- * is by `userPhone` (matches every other dashboard data function in this
- * file — device/phone-scoped, not business_id-scoped) rather than a
- * business_id column on the transaction, so a bill from another device
- * can't be edited/deleted through this device's dashboard even though the
- * dashboard itself is a single shared-password admin surface.
+ * is by `businessId` — the company this device is CURRENTLY set to, not the
+ * device that originally captured the bill — so any device pointed at the
+ * same company can edit/delete bills any other device logged for it, which
+ * is the whole point of multi-device-per-company. Not a meaningful security
+ * change: the dashboard is already a single shared-password admin surface.
  */
 export async function saveDashboardBillEdit(
   config: AppConfig,
@@ -697,7 +741,7 @@ export async function saveDashboardBillEdit(
   const business = await resolveBusiness(deps, userPhone);
   if (!business) return "not-found";
   const before = await deps.drafts.getLogged(id);
-  if (!before || before.userPhone !== userPhone) return "not-found";
+  if (!before || before.businessId !== business.id) return "not-found";
 
   // Snapshot the pre-edit values by primitive, not by reference: the
   // in-memory store's updateLogged mutates the SAME DraftRecord object
@@ -735,7 +779,7 @@ export async function deleteDashboardBill(
   const business = await resolveBusiness(deps, userPhone);
   if (!business) return "not-found";
   const bill = await deps.drafts.getLogged(id);
-  if (!bill || bill.userPhone !== userPhone) return "not-found";
+  if (!bill || bill.businessId !== business.id) return "not-found";
 
   await deps.drafts.softDeleteLogged(id);
   const snapshot: Record<string, { from: unknown; to: unknown }> = {};
@@ -761,8 +805,13 @@ export function withDevice(path: string, device?: string): string {
  * Only the company-details form is wired to a save endpoint (POST back to
  * this same route); the rest are read-only summaries derived from bills.
  */
-export function renderDashboardSettingsPage(data: DashboardSettingsData, device?: string, saved?: boolean): string {
-  const { business, regularVendors, members } = data;
+export function renderDashboardSettingsPage(
+  data: DashboardSettingsData,
+  device?: string,
+  flash?: "saved" | "switched",
+  switchNote?: string,
+): string {
+  const { business, regularVendors, members, allCompanies } = data;
   const field = (v: string | null) => (v ? escapeHtml(v) : "");
   const gstChecked = business?.gstRegistered ? " checked" : "";
   const autoSaveChecked = business?.autoSave ? " checked" : "";
@@ -794,6 +843,10 @@ export function renderDashboardSettingsPage(data: DashboardSettingsData, device?
     : "";
 
   const categoryChips = CATEGORIES.map((c) => `<span class="chip">${escapeHtml(c)}</span>`).join("");
+
+  const companyOptions = allCompanies
+    .map((c) => `<option value="${c.id}"${business && c.id === business.id ? " selected" : ""}>${escapeHtml(c.name)}</option>`)
+    .join("");
 
   return `<!doctype html>
 <html lang="en">
@@ -838,13 +891,33 @@ ${PREMIUM_STYLES}
     </nav>
   </header>
   <main>
+    ${
+      allCompanies.length > 0
+        ? `<span class="eyebrow" data-reveal><span class="dot"></span>Active company</span>
+    <section class="panel" data-reveal>
+      <div class="panel-inner">
+        <h2>Company</h2>
+        ${
+          flash === "switched"
+            ? `<div class="notice notice-success" data-reveal><span class="notice-icon">${iconCheckCircle}</span><span>Switched to ${business ? escapeHtml(business.name) : "—"}.${switchNote ? ` ${escapeHtml(switchNote)}` : ""}</span></div>`
+            : ""
+        }
+        <form method="post" action="${withDevice("/dev/dashboard/switch-company", device)}">
+          ${device ? `<input type="hidden" name="device" value="${escapeHtml(device)}" />` : ""}
+          <div class="field"><label for="s-switch">Switch to</label><select id="s-switch" name="businessId">${companyOptions}</select></div>
+          <button class="btn btn-ghost" type="submit">Switch company</button>
+        </form>
+      </div>
+    </section>`
+        : ""
+    }
     <span class="eyebrow" data-reveal><span class="dot"></span>Company details</span>
     <section class="panel" data-reveal>
       <div class="panel-inner">
         <h2>Basic information</h2>
         ${
           business
-            ? `${saved ? `<div class="notice notice-success" data-reveal><span class="notice-icon">${iconCheckCircle}</span><span>Saved.</span></div>` : ""}
+            ? `${flash === "saved" ? `<div class="notice notice-success" data-reveal><span class="notice-icon">${iconCheckCircle}</span><span>Saved.</span></div>` : ""}
         <form method="post" action="${withDevice("/dev/dashboard/settings", device)}">
           ${device ? `<input type="hidden" name="device" value="${escapeHtml(device)}" />` : ""}
           <div class="field"><label for="s-name">Company name</label><input id="s-name" name="name" class="text-input" type="text" value="${field(business.name)}" /></div>
@@ -940,9 +1013,17 @@ export function renderDashboardBillsPage(
         .map((b) => {
           const editHref = withDevice(`/dev/dashboard/bills/${encodeURIComponent(b.id)}/edit`, device);
           const deleteAction = withDevice(`/dev/dashboard/bills/${encodeURIComponent(b.id)}/delete`, device);
+          const dupMarker = (() => {
+            if (!b.duplicateOfId) return "";
+            const original = bills.find((o) => o.id === b.duplicateOfId);
+            const originalHref = withDevice(`/dev/dashboard/bills/${encodeURIComponent(b.duplicateOfId)}/edit`, device);
+            return original
+              ? ` <a class="chip chip-warn" href="${originalHref}" title="Possibly a duplicate of the ${escapeHtml(original.date ?? original.confirmedAt.slice(0, 10))} bill">Possible duplicate</a>`
+              : ` <span class="chip chip-warn" title="The bill this was flagged against was since deleted">Possible duplicate</span>`;
+          })();
           return `<tr>
           <td>${escapeHtml(b.date ?? b.confirmedAt.slice(0, 10))}</td>
-          <td>${escapeHtml(b.vendor ?? "—")}</td>
+          <td>${escapeHtml(b.vendor ?? "—")}${dupMarker}</td>
           <td><span class="chip chip-accent">${escapeHtml(b.category)}</span></td>
           <td class="num">${formatMoney(b.amount)}</td>
           <td class="num">${formatMoney(b.gst)}</td>
@@ -1033,7 +1114,7 @@ ${PREMIUM_STYLES}
           business
             ? billRows
               ? `<div class="table-scroll"><table><thead><tr><th>Date</th><th>Vendor</th><th>Category</th><th>Amount</th><th>GST</th><th>Invoice</th><th></th></tr></thead><tbody>${billRows}</tbody></table></div>`
-              : `<div class="empty">No bills logged yet.</div>`
+              : `<div class="empty">No bills logged for ${escapeHtml(business.name)} yet.</div>`
             : `<div class="empty">No business found for this device yet — send a bill first.</div>`
         }
       </div>

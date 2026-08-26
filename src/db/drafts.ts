@@ -8,8 +8,14 @@
  * - `findActiveDraft` returns the user's newest non-expired draft.
  * - `confirm` / `expire` / `softDeleteLogged` model the status transitions
  *   (`draft` → `logged` / `expired` / `deleted`, §5.6/§5.8). Confirming also
- *   denormalises the extracted fields onto the transaction row so summaries
- *   (§4.3), search, and the accountant export read plain columns.
+ *   denormalises the extracted fields onto the transaction row (including
+ *   `bill_date`, added for `findDuplicateForBusiness`) so summaries (§4.3),
+ *   search, and the accountant export read plain columns.
+ * - `findDuplicateForBusiness` / `resolveDuplicate` are the company-scoped
+ *   duplicate check that gates every capture (not just auto-log) — see
+ *   flows/photo.ts. Unlike the old phone-scoped, 90-day-windowed check this
+ *   replaced, it has no time window: two devices pointed at the same
+ *   company shooting the same bill months apart should still be caught.
  *
  * Backed by Cloudflare D1 (SQLite): ISO-8601 timestamps as TEXT, booleans as
  * INTEGER 0/1, image_urls / raw_extraction as JSON strings. Timestamps are
@@ -41,6 +47,13 @@ export interface DraftRecord {
   autoLogged?: boolean;
   /** When the confirm-screen nudge was sent (null until then; one-nudge cap, §6.2). */
   flowNudgedAt?: Date;
+  /** The company this bill is scoped to — set once the business is known
+   *  (photo.ts, after resolveBusiness), null before then. */
+  businessId: string | null;
+  /** The id of an existing logged bill this one was flagged as a possible
+   *  duplicate of at capture time (§dev/dashboard bills, duplicate
+   *  detection), null otherwise. */
+  duplicateOfId: string | null;
 }
 
 export interface CreateDraftInput {
@@ -61,6 +74,9 @@ export interface FlowPatch {
    *  resolveBusiness — never set at createDraft time, see its doc comment on
    *  why draft creation must stay ahead of any lookup). */
   businessId?: string;
+  /** Set when this capture was flagged as a possible duplicate (§dev/dashboard
+   *  bills duplicate detection) — the id of the existing logged bill it matched. */
+  duplicateOfId?: string;
 }
 
 export interface ConfirmOptions {
@@ -134,15 +150,29 @@ export interface DraftStore {
   findRecentLogged(userPhone: string, within: Date): Promise<DraftRecord | null>;
   /** Logged/paid transactions, newest first — dashboard/summaries (§4.3). */
   listLogged(userPhone: string, limit?: number): Promise<DraftRecord[]>;
+  /** Logged/paid transactions for a company, newest first (same order as
+   *  listLogged) — the business-scoped sibling used by the admin dashboard
+   *  and the webapp's own recent list once a company is selected. */
+  listLoggedForBusiness(businessId: string, limit?: number): Promise<DraftRecord[]>;
   /** Single logged/paid transaction by id, or null — admin edit form prefill / audit diff base. */
   getLogged(id: string): Promise<DraftRecord | null>;
-  /** §5.8 duplicate gate: any logged match per `isDuplicateMatch`, within the window. */
-  findDuplicate(userPhone: string, extraction: BillExtraction, within: Date): Promise<DraftRecord | null>;
+  /** Business-scoped duplicate check (§dev/dashboard bills): the newest
+   *  logged/paid bill in this company matching amount (rounded 2dp) and
+   *  bill date, excluding `excludeId`. No time window — see drafts.ts's
+   *  module doc. */
+  findDuplicateForBusiness(
+    businessId: string,
+    candidate: { amount: number; billDate: string; excludeId?: string },
+  ): Promise<DraftRecord | null>;
   /** status: logged/paid → deleted (soft delete per §7.4). */
   softDeleteLogged(id: string): Promise<void>;
   /** Admin correction to a logged/paid bill — see LoggedBillPatch. Returns
    *  null if the id isn't a logged/paid transaction. */
   updateLogged(id: string, patch: LoggedBillPatch): Promise<DraftRecord | null>;
+  /** Resolves an `awaiting_duplicate_confirm` draft: "keep" logs it (like
+   *  confirm, autoLogged: false) with duplicateOfId left intact; "discard"
+   *  expires it (same outcome as a skip/cancel). Null if the draft is gone. */
+  resolveDuplicate(id: string, action: "keep" | "discard"): Promise<DraftRecord | null>;
   /** Awaiting-reply drafts, never nudged, inside the nudge window (expires in ≤ window, not yet expired). */
   findNudgeDue(now: Date, nudgeWindowMs: number): Promise<DraftRecord[]>;
   /** Set flow_nudged_at — enforces the one-nudge cap (§6.2). */
@@ -153,7 +183,7 @@ export interface DraftStore {
 
 const DRAFT_COLUMNS =
   "id,user_phone,wa_message_id,flow_state,flow_expires_at,image_urls,created_at,status," +
-  "raw_extraction,gate_level,machine_read,auto_logged,confirmed_at,flow_nudged_at";
+  "raw_extraction,gate_level,machine_read,auto_logged,confirmed_at,flow_nudged_at,business_id,duplicate_of_id";
 
 interface TransactionRow {
   id: string;
@@ -170,6 +200,8 @@ interface TransactionRow {
   auto_logged: number | null;
   confirmed_at: string | null;
   flow_nudged_at: string | null;
+  business_id: string | null;
+  duplicate_of_id: string | null;
 }
 
 export function createD1DraftStore(db: D1Like): DraftStore {
@@ -233,6 +265,10 @@ class D1DraftStore implements DraftStore {
       sets.push("business_id = ?");
       values.push(patch.businessId);
     }
+    if (patch.duplicateOfId !== undefined) {
+      sets.push("duplicate_of_id = ?");
+      values.push(patch.duplicateOfId);
+    }
 
     const row = await this.db
       .prepare(`update transactions set ${sets.join(", ")} where id = ? returning ${DRAFT_COLUMNS}`)
@@ -250,7 +286,7 @@ class D1DraftStore implements DraftStore {
     const row = await this.db
       .prepare(
         `update transactions set status = 'logged', flow_state = null, confirmed_at = ?, auto_logged = ?,
-           amount = ?, gst = ?, category = ?, vendor = ?, abn = ?, invoice_number = ?, due_date = ?
+           amount = ?, gst = ?, category = ?, vendor = ?, abn = ?, invoice_number = ?, due_date = ?, bill_date = ?
          where id = ? returning ${DRAFT_COLUMNS}`,
       )
       .bind(
@@ -263,6 +299,7 @@ class D1DraftStore implements DraftStore {
         e?.abn.value ?? null,
         e?.invoice_number.value ?? null,
         e?.due_date.value ?? null,
+        e?.date.value ?? null,
         id,
       )
       .first<TransactionRow>();
@@ -296,6 +333,16 @@ class D1DraftStore implements DraftStore {
     return res.results.map(toDraftRecord);
   }
 
+  async listLoggedForBusiness(businessId: string, limit = 100): Promise<DraftRecord[]> {
+    const res = await this.db
+      .prepare(
+        `select ${DRAFT_COLUMNS} from transactions where business_id = ? and status in ('logged', 'paid') order by confirmed_at desc limit ?`,
+      )
+      .bind(businessId, limit)
+      .all<TransactionRow>();
+    return res.results.map(toDraftRecord);
+  }
+
   async getLogged(id: string): Promise<DraftRecord | null> {
     const row = await this.db
       .prepare(`select ${DRAFT_COLUMNS} from transactions where id = ? and status in ('logged', 'paid')`)
@@ -304,40 +351,34 @@ class D1DraftStore implements DraftStore {
     return row ? toDraftRecord(row) : null;
   }
 
-  async findDuplicate(
-    userPhone: string,
-    extraction: BillExtraction,
-    within: Date,
+  async findDuplicateForBusiness(
+    businessId: string,
+    candidate: { amount: number; billDate: string; excludeId?: string },
   ): Promise<DraftRecord | null> {
-    // Mirrors isDuplicateMatch: invoice-number branch, then vendor + amount.
-    const inv = extraction.invoice_number.value;
-    if (inv !== null) {
-      const row = await this.db
-        .prepare(
-          `select ${DRAFT_COLUMNS} from transactions where user_phone = ? and status in ('logged', 'paid') and confirmed_at >= ? and invoice_number = ? limit 1`,
-        )
-        .bind(userPhone, within.toISOString(), inv)
-        .first<TransactionRow>();
-      if (row) return toDraftRecord(row);
-    }
-
-    const vendor = extraction.vendor.value;
-    const amount = extraction.amount.value;
-    if (vendor !== null && amount !== null) {
-      const row = await this.db
-        .prepare(
-          `select ${DRAFT_COLUMNS} from transactions where user_phone = ? and status in ('logged', 'paid') and confirmed_at >= ? and vendor = ? and amount = ? limit 1`,
-        )
-        .bind(userPhone, within.toISOString(), vendor, amount)
-        .first<TransactionRow>();
-      if (row) return toDraftRecord(row);
-    }
-
-    return null;
+    // Scoped by business + the bill's own date (no time window). Amount is
+    // matched in application code, rounded to 2dp, rather than SQL `=` —
+    // SQLite float equality isn't reliable enough to trust for money.
+    const res = await this.db
+      .prepare(
+        `select ${DRAFT_COLUMNS}, amount from transactions
+         where business_id = ? and status in ('logged', 'paid') and bill_date = ? and id != ?
+         order by confirmed_at desc`,
+      )
+      .bind(businessId, candidate.billDate, candidate.excludeId ?? "")
+      .all<TransactionRow & { amount: number | null }>();
+    const targetCents = Math.round(candidate.amount * 100);
+    const match = res.results.find((row) => row.amount !== null && Math.round(row.amount * 100) === targetCents);
+    return match ? toDraftRecord(match) : null;
   }
 
   async softDeleteLogged(id: string): Promise<void> {
     await this.db.prepare("update transactions set status = 'deleted' where id = ?").bind(id).run();
+  }
+
+  async resolveDuplicate(id: string, action: "keep" | "discard"): Promise<DraftRecord | null> {
+    if (action === "keep") return this.confirm(id, new Date(), { autoLogged: false });
+    await this.expire(id);
+    return null;
   }
 
   /** Rewrites raw_extraction (merged, each patched field {value, confidence:
@@ -367,7 +408,7 @@ class D1DraftStore implements DraftStore {
 
     const row = await this.db
       .prepare(
-        `update transactions set raw_extraction = ?, vendor = ?, category = ?, amount = ?, gst = ?, abn = ?, invoice_number = ?, due_date = ?
+        `update transactions set raw_extraction = ?, vendor = ?, category = ?, amount = ?, gst = ?, abn = ?, invoice_number = ?, due_date = ?, bill_date = ?
          where id = ? and status in ('logged', 'paid') returning ${DRAFT_COLUMNS}`,
       )
       .bind(
@@ -379,6 +420,7 @@ class D1DraftStore implements DraftStore {
         merged.abn.value,
         merged.invoice_number.value,
         merged.due_date.value,
+        merged.date.value,
         id,
       )
       .first<TransactionRow>();
@@ -435,5 +477,7 @@ function toDraftRecord(row: TransactionRow): DraftRecord {
     confirmedAt: row.confirmed_at ? new Date(row.confirmed_at) : undefined,
     autoLogged: row.auto_logged === null ? undefined : row.auto_logged === 1,
     flowNudgedAt: row.flow_nudged_at ? new Date(row.flow_nudged_at) : undefined,
+    businessId: row.business_id,
+    duplicateOfId: row.duplicate_of_id,
   };
 }

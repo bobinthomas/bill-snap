@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/index";
+import { getSharedMemoryStack } from "../src/dev/memory";
 import { resetWebApp, type WebAppState } from "../src/webapp/app";
 
 const ENV = {};
@@ -23,6 +24,15 @@ function photoForm(device: string, file?: File, ocrText?: string) {
   if (file) form.append("file", file);
   if (ocrText) form.append("ocrText", ocrText);
   return form;
+}
+
+/** Completes first-run setup for a device — /app/photo, /app/manual, and
+ *  /app/action all now require an existing business (§multi-company: closes
+ *  the auto-onboard-via-capture bypass), so every test driving those routes
+ *  for a fresh device needs this first. */
+async function setupDevice(app: ReturnType<typeof createApp>, device: string, name = "Test Business") {
+  const res = await post(app, "/app/setup", { device, name });
+  expect(res.status).toBe(200);
 }
 
 describe("mobile-first webapp (/app)", () => {
@@ -83,9 +93,9 @@ describe("mobile-first webapp (/app)", () => {
   it("runs photo → confirm → undo through the real router with a device identity", async () => {
     const app = createApp();
     const device = "web_test_1";
+    await setupDevice(app, device);
 
-    // Photo with OCR text: unknown device auto-onboards (business + user), then
-    // the photo flow creates a draft and shows the machine-read confirm screen.
+    // The photo flow creates a draft and shows the machine-read confirm screen.
     const photo = await app.request(
       "/app/photo",
       { method: "POST", body: photoForm(device, undefined, "internet 99.95 telstra gst") },
@@ -121,6 +131,7 @@ describe("mobile-first webapp (/app)", () => {
   it("supports the edit sub-flow (option 2 → value → re-rendered confirm)", async () => {
     const app = createApp();
     const device = "web_test_edit";
+    await setupDevice(app, device);
 
     await app.request("/app/photo", { method: "POST", body: photoForm(device, undefined, "coffee shop") }, ENV);
 
@@ -145,6 +156,7 @@ describe("mobile-first webapp (/app)", () => {
   it("supports the category edit sub-flow (option 6) and surfaces it on the draft and recent list", async () => {
     const app = createApp();
     const device = "web_test_category";
+    await setupDevice(app, device);
 
     await app.request("/app/photo", { method: "POST", body: photoForm(device, undefined, "coffee shop") }, ENV);
 
@@ -165,6 +177,7 @@ describe("mobile-first webapp (/app)", () => {
   it("manual entry's amount edit can be cancelled without entering a number", async () => {
     const app = createApp();
     const device = "web_test_manual_cancel";
+    await setupDevice(app, device);
 
     // Tapping "Manual" creates a blank draft and jumps straight into the
     // amount edit sheet (option 2) — same as $("manual").onclick in app.ts.
@@ -183,6 +196,7 @@ describe("mobile-first webapp (/app)", () => {
 
   it("isolates bills between devices", async () => {
     const app = createApp();
+    await setupDevice(app, "web_a");
     await app.request("/app/photo", { method: "POST", body: photoForm("web_a", undefined, "rent 2200 homebase") }, ENV);
     await post(app, "/app/action", { device: "web_a", text: "1" });
 
@@ -194,6 +208,7 @@ describe("mobile-first webapp (/app)", () => {
 
   it("shares the store with the dashboard (device-scoped analytics)", async () => {
     const app = createApp();
+    await setupDevice(app, "web_dash");
     await app.request("/app/photo", { method: "POST", body: photoForm("web_dash", undefined, "internet 100 telstra gst") }, ENV);
     await post(app, "/app/action", { device: "web_dash", text: "1" });
 
@@ -218,6 +233,7 @@ describe("mobile-first webapp (/app)", () => {
   it("learns vendors from logged bills and canonicalises a mangled re-read", async () => {
     const app = createApp();
     const device = "web_learn";
+    await setupDevice(app, device);
 
     // Log a bill from a merchant NOT in the seed KNOWN_VENDORS list.
     await app.request(
@@ -242,6 +258,7 @@ describe("mobile-first webapp (/app)", () => {
   it("logs the vendor resolution on the dashboard for canonicalised bills", async () => {
     const app = createApp();
     const device = "web_resolved";
+    await setupDevice(app, device);
 
     // A bill whose vendor is canonicalised via edit-distance matching (seed
     // vendor "Gujarat Freight Tools").
@@ -272,6 +289,7 @@ describe("mobile-first webapp (/app)", () => {
   it("creates a blank draft for manual entry and lets the user fill in the amount", async () => {
     const app = createApp();
     const device = "web_manual";
+    await setupDevice(app, device);
 
     const manual = await post(app, "/app/manual", { device });
     expect(manual.status).toBe(200);
@@ -301,6 +319,7 @@ describe("mobile-first webapp (/app)", () => {
 
   it("routes a real uploaded image through the pipeline (bytes + storage)", async () => {
     const app = createApp();
+    await setupDevice(app, "web_img");
     const bytes = new TextEncoder().encode("fake-web-bill-jpeg");
     const file = new File([bytes], "web-bill.jpg", { type: "image/jpeg" });
 
@@ -310,5 +329,117 @@ describe("mobile-first webapp (/app)", () => {
     // No OCR text, no AI binding → machine-read confirm screen.
     expect(state.draft?.flowState).toBe("awaiting_confirm");
     expect(state.draft?.machineRead).toBe(true);
+  });
+
+  it("requires setup before /app/photo — no auto-onboard bypass", async () => {
+    const app = createApp();
+    const res = await app.request(
+      "/app/photo",
+      { method: "POST", body: photoForm("web_bypass", undefined, "internet 100 telstra gst") },
+      ENV,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("setup required");
+  });
+
+  it("onboarding screen lists existing companies; selecting one binds the device without creating a new business", async () => {
+    const app = createApp();
+    await setupDevice(app, "web_company_a", "Company A");
+
+    // A brand-new device sees Company A in its picker.
+    const picker = (await (await app.request("/app/state?device=web_new_device", {}, ENV)).json()) as WebAppState;
+    expect(picker.needsSetup).toBe(true);
+    const companyId = picker.companies?.find((c) => c.name === "Company A")?.id;
+    expect(companyId).toBeDefined();
+
+    const res = await post(app, "/app/select-company", { device: "web_new_device", businessId: companyId });
+    expect(res.status).toBe(200);
+    const after = (await res.json()) as WebAppState;
+    expect(after.needsSetup).toBe(false);
+
+    // Still only one company in the system — no duplicate was created.
+    const stillOne = (await (await app.request("/app/state?device=web_yet_another", {}, ENV)).json()) as WebAppState;
+    expect(stillOne.companies?.length).toBe(1);
+  });
+
+  it("recent list reflects only the currently-selected company's bills after a switch", async () => {
+    const app = createApp();
+    await setupDevice(app, "web_switch_1", "Company A");
+    await app.request("/app/photo", { method: "POST", body: photoForm("web_switch_1", undefined, "internet 100 telstra gst") }, ENV);
+    await post(app, "/app/action", { device: "web_switch_1", text: "1" });
+
+    await setupDevice(app, "web_switch_2", "Company B");
+    await app.request("/app/photo", { method: "POST", body: photoForm("web_switch_2", undefined, "rent 2200 homebase") }, ENV);
+    await post(app, "/app/action", { device: "web_switch_2", text: "1" });
+
+    const before = (await (await app.request("/app/state?device=web_switch_1", {}, ENV)).json()) as WebAppState;
+    expect(before.recent.map((r) => r.vendor)).toContain("telstra");
+
+    const picker = (await (await app.request("/app/state?device=web_fresh", {}, ENV)).json()) as WebAppState;
+    const companyB = picker.companies?.find((c) => c.name === "Company B")?.id;
+
+    await post(app, "/app/select-company", { device: "web_switch_1", businessId: companyB });
+    const after = (await (await app.request("/app/state?device=web_switch_1", {}, ENV)).json()) as WebAppState;
+    expect(after.recent.map((r) => r.vendor)).toContain("homebase");
+    expect(after.recent.map((r) => r.vendor)).not.toContain("telstra");
+  });
+
+  it("surfaces pendingDuplicate for an awaiting_duplicate_confirm draft, and resolve-duplicate clears it", async () => {
+    const app = createApp();
+    const device = "web_dup_state";
+    await setupDevice(app, device, "Dup Co");
+
+    const stack = getSharedMemoryStack();
+    const user = await stack.users.findUser(device);
+    const businessId = user!.businessId!;
+    const extraction = {
+      amount: { value: 100, confidence: 0.9 },
+      date: { value: "2026-08-15", confidence: 0.9 },
+      vendor: { value: "Telstra", confidence: 0.9 },
+      abn: { value: null, confidence: 0 },
+      gst: { value: null, confidence: 0 },
+      gst_basis: "none" as const,
+      invoice_number: { value: null, confidence: 0 },
+      due_date: { value: null, confidence: 0 },
+      category_hint: { value: "utilities", confidence: 0.6 },
+    };
+
+    // The existing bill this capture will be flagged against.
+    const original = await stack.drafts.createDraft({
+      userPhone: device,
+      waMessageId: "wamid.original",
+      imageUrls: [],
+      flowExpiresAt: new Date(Date.now() + 600_000),
+    });
+    await stack.drafts.setFlowState(original!.id, { flowState: "awaiting_confirm", extraction, businessId });
+    await stack.drafts.confirm(original!.id, new Date());
+
+    // A second capture, manually put into the flagged state (mirrors what
+    // flows/photo.ts does on a findDuplicateForBusiness hit).
+    const flagged = await stack.drafts.createDraft({
+      userPhone: device,
+      waMessageId: "wamid.flagged",
+      imageUrls: [],
+      flowExpiresAt: new Date(Date.now() + 600_000),
+    });
+    await stack.drafts.setFlowState(flagged!.id, {
+      flowState: "awaiting_duplicate_confirm",
+      extraction,
+      businessId,
+      duplicateOfId: original!.id,
+    });
+
+    const state = (await (await app.request(`/app/state?device=${device}`, {}, ENV)).json()) as WebAppState;
+    expect(state.draft?.flowState).toBe("awaiting_duplicate_confirm");
+    expect(state.pendingDuplicate?.vendor).toBe("Telstra");
+    expect(state.pendingDuplicate?.amount).toBe(100);
+    expect(state.pendingDuplicate?.billDate).toBe("2026-08-15");
+
+    const res = await post(app, "/app/resolve-duplicate", { device, draftId: flagged!.id, action: "keep" });
+    expect(res.status).toBe(200);
+    const after = (await res.json()) as WebAppState;
+    expect(after.pendingDuplicate).toBeUndefined();
+    expect(after.draft).toBeNull();
+    expect(after.recent.some((r) => r.id === flagged!.id)).toBe(true);
   });
 });

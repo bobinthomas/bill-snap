@@ -36,6 +36,7 @@ export type FlowState =
   | "editing_vendor"
   | "editing_date"
   | "editing_category"
+  | "awaiting_duplicate_confirm"
   | "queued";
 
 /** Normalised inbound WhatsApp event used by the router (§5.6). */

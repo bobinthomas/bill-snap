@@ -28,6 +28,7 @@ export interface BusinessRecord {
   address: string | null;
   /** Business contact number — distinct from users.phone_number (the WhatsApp/webapp identity). */
   phone: string | null;
+  createdAt: Date;
 }
 
 export type SetupStep = "name" | "timezone" | "gst";
@@ -64,6 +65,14 @@ export interface BusinessStore {
   setSetupStep(phoneNumber: string, step: SetupStep | null): Promise<void>;
   /** Owner + staff roster for the settings page's Team members section. */
   listMembers(businessId: string): Promise<MembershipRecord[]>;
+  /** Every company, name-ordered — the company picker/switcher's source list. */
+  listAll(): Promise<BusinessRecord[]>;
+  /** Binds a phone/device to an EXISTING company: upserts the users row and
+   *  adds an owner membership if one doesn't already exist. Returns null
+   *  when businessId doesn't exist. Distinct from onboard(), which always
+   *  creates a NEW company — this one only ever attaches to one already
+   *  there (the company picker/switcher's "select existing" path). */
+  assignBusiness(phoneNumber: string, businessId: string): Promise<BusinessRecord | null>;
 }
 
 interface BusinessRow {
@@ -204,6 +213,33 @@ class D1BusinessStore implements BusinessStore {
     return results.map((r) => ({ userPhone: r.user_phone, role: r.role, createdAt: new Date(r.created_at) }));
   }
 
+  async listAll(): Promise<BusinessRecord[]> {
+    const { results } = await this.db
+      .prepare(
+        "select id, name, abn, gst_number, timezone, gst_registered, auto_save, address, phone, created_at from businesses order by name",
+      )
+      .all<BusinessRow>();
+    return results.map(toBusinessRecord);
+  }
+
+  async assignBusiness(phoneNumber: string, businessId: string): Promise<BusinessRecord | null> {
+    const business = await this.findBusiness(businessId);
+    if (!business) return null;
+    await this.db
+      .prepare(
+        "insert into users (phone_number, business_id) values (?, ?) on conflict(phone_number) do update set business_id = excluded.business_id",
+      )
+      .bind(phoneNumber, businessId)
+      .run();
+    await this.db
+      .prepare(
+        "insert or ignore into memberships (id, business_id, user_phone, role) values (?, ?, ?, 'owner')",
+      )
+      .bind(crypto.randomUUID(), businessId, phoneNumber)
+      .run();
+    return business;
+  }
+
   async getSetupStep(phoneNumber: string): Promise<SetupStep | null> {
     const row = await this.findUserRow(phoneNumber);
     const step = row?.setup_step;
@@ -237,6 +273,7 @@ function toBusinessRecord(row: BusinessRow): BusinessRecord {
     autoSave: row.auto_save === 1,
     address: row.address,
     phone: row.phone,
+    createdAt: new Date(row.created_at),
   };
 }
 

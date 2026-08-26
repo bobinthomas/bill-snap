@@ -433,6 +433,7 @@ describe("autosave on/off (§5.8 opt-out)", () => {
       address: null,
       phone: null,
       autoSave: true,
+      createdAt: new Date(),
     });
     const reply = await handleCommand(textEvent("autosave off"), {
       users: deps.users,
@@ -456,6 +457,7 @@ describe("autosave on/off (§5.8 opt-out)", () => {
       address: null,
       phone: null,
       autoSave: false,
+      createdAt: new Date(),
     });
     const reply = await handleCommand(textEvent("autosave on"), {
       users: deps.users,

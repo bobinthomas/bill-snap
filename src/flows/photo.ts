@@ -3,11 +3,16 @@
  * extraction — so a retried delivery can never double-process. A retry finds the
  * existing draft (via the `(user_phone, wa_message_id)` key) and is ignored.
  *
+ * Duplicate detection (business-scoped, unconditional — see drafts.ts's
+ * findDuplicateForBusiness) runs first, ahead of everything else below: a
+ * match short-circuits straight to `awaiting_duplicate_confirm`, skipping
+ * both auto-log and the ordinary confirm screen.
+ *
  * §5.8 auto-log (M7): High-confidence, non-machine-read extractions log
- * immediately with the 24-hour undo window, gated on the duplicate check and
- * the business's `auto_save` opt-out.
+ * immediately with the 24-hour undo window, gated on the business's
+ * `auto_save` opt-out (duplicate avoidance already happened above).
  */
-import { renderConfirmScreen, renderLoggedReply } from "../messaging/screens";
+import { renderConfirmScreen, renderDuplicateConfirmScreen, renderLoggedReply } from "../messaging/screens";
 import type { RouteDeps } from "../webhook/router";
 import type { InboundEvent } from "../types";
 import { resolveBusiness } from "./helpers";
@@ -78,35 +83,55 @@ export async function handlePhoto(event: InboundEvent, deps: RouteDeps): Promise
     vendorCategoryHistory,
   });
 
-  // §5.8 auto-log: High confidence, not machine-read, auto_save on, no duplicate.
+  // Business-scoped duplicate check (§dev/dashboard bills, drafts.ts's
+  // findDuplicateForBusiness) — unconditional, not just an auto-log gate:
+  // multi-device-per-company makes a cross-device duplicate the common case,
+  // not an edge case. No time window; skipped when extraction couldn't read
+  // an amount/date, or no business is resolved yet.
+  const candidateAmount = outcome.extraction.amount.value;
+  const candidateBillDate = outcome.extraction.date.value;
+  if (business && candidateAmount !== null && candidateBillDate !== null) {
+    const existing = await deps.drafts.findDuplicateForBusiness(business.id, {
+      amount: candidateAmount,
+      billDate: candidateBillDate,
+      excludeId: draft.id,
+    });
+    if (existing) {
+      await deps.drafts.setFlowState(draft.id, {
+        flowState: "awaiting_duplicate_confirm",
+        extraction: outcome.extraction,
+        gateLevel: outcome.gate,
+        machineRead: outcome.machineRead,
+        imageUrls,
+        businessId: business.id,
+        duplicateOfId: existing.id,
+      });
+      await deps.send.sendText(event.userPhone, renderDuplicateConfirmScreen(existing));
+      return;
+    }
+  }
+
+  // §5.8 auto-log: High confidence, not machine-read, auto_save on. Duplicate
+  // avoidance already happened above, business-scoped and unconditional.
   if (
     outcome.gate === "high" &&
     !outcome.machineRead &&
     business?.autoSave !== false
   ) {
-    const within90 = new Date(Date.now() - 90 * 24 * 3_600_000);
-    const duplicate = await deps.drafts.findDuplicate(
-      event.userPhone,
-      outcome.extraction,
-      within90,
-    );
-    if (!duplicate) {
-      // Persist the extraction first so the logged reply and audit trail carry it.
-      await deps.drafts.setFlowState(draft.id, {
-        flowState: "awaiting_confirm",
-        extraction: outcome.extraction,
-        gateLevel: outcome.gate,
-        machineRead: outcome.machineRead,
-        imageUrls,
-        businessId: business?.id,
-      });
-      const confirmed = await deps.drafts.confirm(draft.id, new Date(), { autoLogged: true });
-      if (confirmed) {
-        await deps.send.sendText(event.userPhone, renderLoggedReply(confirmed, "24 hours"));
-        return;
-      }
+    // Persist the extraction first so the logged reply and audit trail carry it.
+    await deps.drafts.setFlowState(draft.id, {
+      flowState: "awaiting_confirm",
+      extraction: outcome.extraction,
+      gateLevel: outcome.gate,
+      machineRead: outcome.machineRead,
+      imageUrls,
+      businessId: business?.id,
+    });
+    const confirmed = await deps.drafts.confirm(draft.id, new Date(), { autoLogged: true });
+    if (confirmed) {
+      await deps.send.sendText(event.userPhone, renderLoggedReply(confirmed, "24 hours"));
+      return;
     }
-    // Duplicate suspected → fall through to the confirm screen (§4.1 edge case).
   }
 
   const updated = await deps.drafts.setFlowState(draft.id, {

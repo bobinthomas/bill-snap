@@ -62,6 +62,7 @@ function makeDeps(outcome: ExtractionOutcome, send: MockMessenger) {
     autoSave: true,
     address: null,
     phone: null,
+    createdAt: new Date(),
   });
   const extraction = new RecordingExtraction(outcome);
   const storage = new FakeBillStorage();
@@ -167,6 +168,7 @@ describe("M8 media download (§5.6)", () => {
       autoSave: true,
       address: null,
       phone: null,
+      createdAt: new Date(),
     });
     const deps = {
       users,
