@@ -40,6 +40,7 @@ import {
   stashWebMedia,
   webAction,
   webAppState,
+  webCompanies,
   webHasBusiness,
   webManualEntry,
   webPhoto,
@@ -347,6 +348,13 @@ export function createApp(deps: AppDeps = {}) {
       gstRegistered: body.gstRegistered === true,
     });
     return c.json(await webAppState(config, aiBinding(c.env), device, cloudBindings(c.env)));
+  });
+  app.get("/app/companies", async (c) => {
+    const config = loadConfig(c.env);
+    const device = c.req.query("device")?.trim();
+    if (!device) return c.json({ error: "device required" }, 400);
+    const companies = await webCompanies(config, aiBinding(c.env), device, cloudBindings(c.env));
+    return c.json({ companies });
   });
   app.post("/app/select-company", async (c) => {
     const config = loadConfig(c.env);

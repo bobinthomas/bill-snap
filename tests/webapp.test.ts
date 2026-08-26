@@ -384,6 +384,53 @@ describe("mobile-first webapp (/app)", () => {
     expect(after.recent.map((r) => r.vendor)).not.toContain("telstra");
   });
 
+  it("state exposes the device's current company once set, for the in-app switcher pill", async () => {
+    const app = createApp();
+    const fresh = (await (await app.request("/app/state?device=web_biz_field", {}, ENV)).json()) as WebAppState;
+    expect(fresh.business).toBeUndefined();
+
+    await setupDevice(app, "web_biz_field", "Pill Co");
+    const after = (await (await app.request("/app/state?device=web_biz_field", {}, ENV)).json()) as WebAppState;
+    expect(after.business?.name).toBe("Pill Co");
+    expect(after.business?.id).toBeDefined();
+  });
+
+  it("GET /app/companies lists every company regardless of needsSetup, for an already-onboarded device's switcher", async () => {
+    const app = createApp();
+    await setupDevice(app, "web_already_set_up", "Company A");
+    await setupDevice(app, "web_other_device", "Company B");
+
+    const res = await app.request("/app/companies?device=web_already_set_up", {}, ENV);
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { companies: Array<{ id: string; name: string }> };
+    expect(data.companies.map((c) => c.name).sort()).toEqual(["Company A", "Company B"]);
+  });
+
+  it("an already-onboarded device can switch companies via /app/select-company, not just at first-run onboarding", async () => {
+    const app = createApp();
+    await setupDevice(app, "web_switch_existing", "Company A");
+    const before = (await (await app.request("/app/state?device=web_switch_existing", {}, ENV)).json()) as WebAppState;
+    expect(before.needsSetup).toBe(false);
+
+    const companies = (await (await app.request("/app/companies?device=web_switch_existing", {}, ENV)).json()) as {
+      companies: Array<{ id: string; name: string }>;
+    };
+    const companyA = companies.companies.find((c) => c.name === "Company A")!.id;
+
+    await setupDevice(app, "web_other_device_2", "Company B");
+    const companiesAfter = (await (await app.request("/app/companies?device=web_switch_existing", {}, ENV)).json()) as {
+      companies: Array<{ id: string; name: string }>;
+    };
+    const companyB = companiesAfter.companies.find((c) => c.name === "Company B")!.id;
+
+    const res = await post(app, "/app/select-company", { device: "web_switch_existing", businessId: companyB });
+    expect(res.status).toBe(200);
+    const after = (await res.json()) as WebAppState;
+    expect(after.needsSetup).toBe(false);
+    expect(after.business?.name).toBe("Company B");
+    expect(after.business?.id).not.toBe(companyA);
+  });
+
   it("surfaces pendingDuplicate for an awaiting_duplicate_confirm draft, and resolve-duplicate clears it", async () => {
     const app = createApp();
     const device = "web_dup_state";

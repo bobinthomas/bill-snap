@@ -232,6 +232,21 @@ export async function webSelectCompany(
   return business !== null;
 }
 
+/** Every company, for the in-app switcher (navbar pill) — unlike
+ *  webAppState's onboarding-only `companies` field, this is available
+ *  whether or not the device already has a business, and is fetched only
+ *  when the switcher is opened rather than on every 3s poll. */
+export async function webCompanies(
+  config: AppConfig,
+  ai: WorkersAi | undefined,
+  deviceId: string,
+  bindings?: CloudBindings,
+): Promise<Array<{ id: string; name: string; createdAt: string }>> {
+  const deps = webDeps(config, ai, deviceId, bindings);
+  const companies = await deps.businesses.listAll();
+  return companies.map((c) => ({ id: c.id, name: c.name, createdAt: c.createdAt.toISOString() }));
+}
+
 /** Resolves the device's pendingDuplicate card. Returns false when the
  *  draft isn't actually awaiting_duplicate_confirm (stale click). */
 export async function webResolveDuplicate(
@@ -386,9 +401,14 @@ export interface WebAppState {
    *  completed once (no business record exists yet) — the capture UI stays
    *  gated behind the setup screen while this is true. */
   needsSetup: boolean;
+  /** The device's current company, once one exists — lets the webapp itself
+   *  show which company it's posting to and offer a switcher, not just the
+   *  admin dashboard. */
+  business?: { id: string; name: string };
   /** Existing companies to pick from during first-run setup — only
    *  populated while needsSetup is true (no point re-querying every poll
-   *  once a business is set). */
+   *  once a business is set). The in-app switcher fetches the same list on
+   *  demand instead, via GET /app/companies — see webCompanies(). */
   companies?: Array<{ id: string; name: string; createdAt: string }>;
   /** Set when the active draft is awaiting_duplicate_confirm (flows/photo.ts's
    *  business-scoped duplicate check) — the bill it collided with. */
@@ -469,6 +489,7 @@ export async function webAppState(
     ocrRead: ocrReads.get(id) ?? null,
     autoSave: business?.autoSave ?? true,
     needsSetup: business === null,
+    business: business ? { id: business.id, name: business.name } : undefined,
     companies: companies?.map((c) => ({ id: c.id, name: c.name, createdAt: c.createdAt.toISOString() })),
     pendingDuplicate,
     draft: draft
@@ -581,6 +602,8 @@ const WEB_APP_PAGE = `<!doctype html>
   }
   .toggle-pill.on { background: var(--green-soft); border-color: var(--green-border); color: var(--green); }
   .toggle-pill .icon { width: 14px; height: 14px; }
+  #companyPill { max-width: 120px; }
+  #companyPill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   main {
     position: absolute; top: var(--navbar-h); left: 0; right: 0; bottom: 0; overflow-y: auto;
@@ -779,6 +802,24 @@ const WEB_APP_PAGE = `<!doctype html>
   .dup-actions button { flex: 1; height: 46px; border-radius: var(--radius-md); font-size: 14px; font-weight: 700; cursor: pointer; }
   .dup-actions .keep { background: #ffffff; color: #000000; }
   .dup-actions .discard { background: var(--bg-elevated-2); color: var(--label); border: 1px solid var(--hairline-soft); }
+
+  #companySwitchOverlay {
+    display: none; position: fixed; inset: 0; z-index: 35; align-items: flex-end; justify-content: center;
+    background: rgba(0,0,0,0.55);
+  }
+  .switch-sheet {
+    width: 100%; max-width: 480px; max-height: 78vh; overflow-y: auto; padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0; border: 1px solid var(--hairline-soft); border-bottom: none; background: var(--bg-elevated);
+  }
+  .switch-sheet h2 { font-size: 17px; margin: 0 0 4px; }
+  .switch-sheet .switch-note { font-size: 13px; color: var(--label-secondary); margin: 0 0 14px; }
+  .switch-sheet .switch-warn { font-size: 12.5px; color: var(--orange); background: var(--orange-soft, rgba(255,159,10,.12)); border-radius: var(--radius-md); padding: 10px 12px; margin: 0 0 14px; display: none; }
+  .switch-sheet .company-row.current { border-color: var(--blue); }
+  .switch-sheet .company-row .company-meta.current-tag { color: var(--blue); font-weight: 600; }
+  .switch-cancel {
+    display: block; width: 100%; height: 46px; margin-top: 4px; border-radius: var(--radius-md);
+    background: var(--bg-elevated-2); color: var(--label); border: 1px solid var(--hairline-soft); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -789,6 +830,7 @@ const WEB_APP_PAGE = `<!doctype html>
       <span class="brand-title">BillSnap</span>
     </div>
     <div class="trailing">
+      <button id="companyPill" class="toggle-pill" title="Switch company" hidden></button>
       <a href="/dev/dashboard?device=" class="icon-btn dash-link" aria-label="Dashboard" title="Dashboard">${iconBarChart}</a>
       <button id="autosaveToggle" class="toggle-pill" title="High-confidence AI reads auto-log with a 24h undo when on; every bill needs Confirm &amp; Save when off"></button>
     </div>
@@ -881,6 +923,15 @@ const WEB_APP_PAGE = `<!doctype html>
       </div>
     </div>
   </div>
+  <div id="companySwitchOverlay">
+    <div class="switch-sheet">
+      <h2>Switch company</h2>
+      <p class="switch-note">Bills you log after switching go to the company you pick below.</p>
+      <p class="switch-warn" id="switchWarn">You have a bill in progress — it'll still be logged under the company you're on now, even after you switch.</p>
+      <div id="companySwitchList" class="company-list"></div>
+      <button class="switch-cancel" id="switchCancel">Cancel</button>
+    </div>
+  </div>
 <script>
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -927,6 +978,10 @@ const WEB_APP_PAGE = `<!doctype html>
   // cancelled (nothing was ever entered — discard the draft rather than
   // leaving its empty confirm screen on screen, see cancelEditSheet()).
   let manualEntryPending = false;
+  // Most recent state render() received — the company switcher reads the
+  // current business + whether a draft is in progress off this rather than
+  // re-fetching, since it only opens in response to a user tap.
+  let lastState = null;
 
   const EDIT_META = {
     editing_amount: { label: "Amount", kind: "amount" },
@@ -977,6 +1032,60 @@ const WEB_APP_PAGE = `<!doctype html>
       btn.disabled = false;
     }
   };
+
+  $("companyPill").onclick = () => openCompanySwitcher();
+  $("switchCancel").onclick = () => { $("companySwitchOverlay").style.display = "none"; };
+
+  async function openCompanySwitcher() {
+    const overlay = $("companySwitchOverlay");
+    const list = $("companySwitchList");
+    overlay.style.display = "flex";
+    list.innerHTML = '<div class="empty">Loading…</div>';
+    $("switchWarn").style.display = lastState && lastState.draft ? "block" : "none";
+    try {
+      const res = await fetch("/app/companies?device=" + encodeURIComponent(device));
+      const data = res.ok ? await res.json() : { companies: [] };
+      renderCompanySwitchList(data.companies || []);
+    } catch {
+      list.innerHTML = '<div class="empty">Couldn’t load companies — check your connection.</div>';
+    }
+  }
+
+  function renderCompanySwitchList(companies) {
+    const list = $("companySwitchList");
+    const currentId = lastState && lastState.business ? lastState.business.id : null;
+    list.innerHTML = companies.map(function (c) {
+      const isCurrent = c.id === currentId;
+      const added = new Date(c.createdAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+      return '<button class="company-row' + (isCurrent ? " current" : "") + '" data-id="' + esc(c.id) + '" type="button"' + (isCurrent ? " disabled" : "") + ">" +
+        '<div><div class="company-name">' + esc(c.name) + '</div><div class="company-meta' + (isCurrent ? " current-tag" : "") + '">' +
+        (isCurrent ? "Current company" : "Added " + added) + "</div></div>" +
+        (isCurrent ? "" : '<span class="chev">' + ICON_CHEV + "</span>") + "</button>";
+    }).join("");
+    list.querySelectorAll(".company-row:not(.current)").forEach(function (btn) {
+      btn.onclick = () => switchCompany(btn.dataset.id);
+    });
+  }
+
+  async function switchCompany(id) {
+    const hadDraft = !!(lastState && lastState.draft);
+    const prevName = lastState && lastState.business ? lastState.business.name : null;
+    const res = await fetch("/app/select-company", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ device, businessId: id }),
+    });
+    if (!res.ok) return;
+    const s = await res.json();
+    $("companySwitchOverlay").style.display = "none";
+    render(s);
+    const newName = s.business ? s.business.name : "the new company";
+    const note = "Switched to " + newName + "." + (hadDraft && prevName ? " Your in-progress bill will still be logged under " + prevName + "." : "");
+    const reply = $("reply");
+    reply.style.display = "flex";
+    reply.className = "notice notice-success";
+    reply.innerHTML = '<span class="notice-icon">' + ICON_CHECK + "</span><span>" + esc(note) + "</span>";
+  }
 
   function chip(text, variant) {
     const cls = "chip" + (variant ? " chip-" + variant : "");
@@ -1051,10 +1160,18 @@ const WEB_APP_PAGE = `<!doctype html>
   }
 
   function render(s) {
+    lastState = s;
     $("setupScreen").style.display = s.needsSetup ? "block" : "none";
     if (s.needsSetup) {
       renderCompanyPicker(s.companies || []);
       return;
+    }
+    const pill = $("companyPill");
+    if (s.business) {
+      pill.hidden = false;
+      pill.innerHTML = "<span>" + esc(s.business.name) + "</span>";
+    } else {
+      pill.hidden = true;
     }
     renderDuplicateCard(s.pendingDuplicate);
     autoSave = s.autoSave;
