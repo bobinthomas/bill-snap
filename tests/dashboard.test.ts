@@ -464,6 +464,52 @@ describe("dev settings page (/dev/dashboard/settings)", () => {
     expect(html).toContain("Your in-progress bill will still be logged under Company A.");
   });
 
+  it("adds a brand-new company from the admin dashboard and switches this device onto it", async () => {
+    const deps = demoDeps(loadConfig(ENV));
+    const { business: companyA } = await deps.businesses.onboard(DEMO_PHONE);
+    await deps.businesses.updateBusiness(companyA.id, { name: "Company A" });
+
+    const app = createApp();
+    const res = await app.request(
+      "/dev/dashboard/companies",
+      {
+        method: "POST",
+        headers: { ...AUTH_HEADER, "content-type": "application/x-www-form-urlencoded" },
+        body: "name=Company+C&abn=12345",
+      },
+      ENV,
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/dev/dashboard/settings?flash=created");
+
+    const html = await (await get(app, "/dev/dashboard/settings?flash=created")).text();
+    expect(html).toContain("Added Company C");
+    // This device is now ON the new company, not the one it started on.
+    expect(html).toMatch(/id="s-name"[^>]*value="Company C"/);
+
+    const business = await resolveBusiness(deps, DEMO_PHONE);
+    expect(business?.name).toBe("Company C");
+
+    // The original company still exists — just not the one this device is on.
+    expect(await deps.businesses.listAll()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "Company A" }), expect.objectContaining({ name: "Company C" })]),
+    );
+  });
+
+  it("rejects adding a company with no name", async () => {
+    const app = createApp();
+    const res = await app.request(
+      "/dev/dashboard/companies",
+      {
+        method: "POST",
+        headers: { ...AUTH_HEADER, "content-type": "application/x-www-form-urlencoded" },
+        body: "abn=12345",
+      },
+      ENV,
+    );
+    expect(res.status).toBe(400);
+  });
+
   it("lets a second device assigned to the SAME company see and edit the first device's bills", async () => {
     const OTHER = "61499999998";
     const deps = demoDeps(loadConfig(ENV));

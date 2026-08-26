@@ -9,7 +9,7 @@ import type { AppConfig } from "../config";
 import type { CloudBindings } from "../bindings";
 import type { AuditEntry } from "../db/audit";
 import { createD1AuditLogStore } from "../db/audit";
-import type { BusinessPatch, BusinessRecord, MembershipRecord } from "../db/businesses";
+import type { BusinessPatch, BusinessRecord, MembershipRecord, NewCompanyFields } from "../db/businesses";
 import type { DraftRecord, LoggedBillPatch } from "../db/drafts";
 import { CATEGORIES, type RegularVendor } from "../extraction/vendor-categories";
 import { mergeKnownVendors } from "../extraction/regex";
@@ -643,6 +643,22 @@ export async function switchDashboardCompany(
   };
 }
 
+/** Creates a brand-new company from the admin dashboard's "Add a new
+ *  company" form and switches this device onto it — the admin-side
+ *  counterpart to /app's onboarding "add a new company" path, reachable
+ *  without needing a second, never-before-seen device. */
+export async function createDashboardCompany(
+  config: AppConfig,
+  bindings: CloudBindings | undefined,
+  userPhone: string = DEMO_PHONE,
+  fields: NewCompanyFields,
+): Promise<BusinessRecord> {
+  const deps = demoDeps(config, undefined, bindings);
+  const business = await deps.businesses.createCompany(fields);
+  await deps.businesses.assignBusiness(userPhone, business.id);
+  return business;
+}
+
 function dashboardAuditStore(bindings?: CloudBindings) {
   return bindings?.db ? createD1AuditLogStore(bindings.db) : getSharedMemoryStack().audit;
 }
@@ -808,7 +824,7 @@ export function withDevice(path: string, device?: string): string {
 export function renderDashboardSettingsPage(
   data: DashboardSettingsData,
   device?: string,
-  flash?: "saved" | "switched",
+  flash?: "saved" | "switched" | "created",
   switchNote?: string,
 ): string {
   const { business, regularVendors, members, allCompanies } = data;
@@ -868,6 +884,13 @@ ${PREMIUM_STYLES}
   .field-check label { font-size: 13px; color: var(--text); }
   .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   @media (max-width: 560px) { .field-row { grid-template-columns: 1fr; } }
+  .company-add { margin-top: 14px; }
+  .company-add summary {
+    list-style: none; cursor: pointer; font-size: 13px; font-weight: 700; color: var(--accent-solid);
+  }
+  .company-add summary::-webkit-details-marker { display: none; }
+  .company-add[open] summary { margin-bottom: 14px; }
+  .company-add form { padding-top: 4px; }
   .chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
   .hint { margin-top: 14px; }
   .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -891,9 +914,7 @@ ${PREMIUM_STYLES}
     </nav>
   </header>
   <main>
-    ${
-      allCompanies.length > 0
-        ? `<span class="eyebrow" data-reveal><span class="dot"></span>Active company</span>
+    <span class="eyebrow" data-reveal><span class="dot"></span>Companies</span>
     <section class="panel" data-reveal>
       <div class="panel-inner">
         <h2>Company</h2>
@@ -902,15 +923,40 @@ ${PREMIUM_STYLES}
             ? `<div class="notice notice-success" data-reveal><span class="notice-icon">${iconCheckCircle}</span><span>Switched to ${business ? escapeHtml(business.name) : "—"}.${switchNote ? ` ${escapeHtml(switchNote)}` : ""}</span></div>`
             : ""
         }
-        <form method="post" action="${withDevice("/dev/dashboard/switch-company", device)}">
+        ${
+          flash === "created"
+            ? `<div class="notice notice-success" data-reveal><span class="notice-icon">${iconCheckCircle}</span><span>Added ${business ? escapeHtml(business.name) : "—"} — you're now on it.</span></div>`
+            : ""
+        }
+        ${
+          allCompanies.length > 0
+            ? `<form method="post" action="${withDevice("/dev/dashboard/switch-company", device)}">
           ${device ? `<input type="hidden" name="device" value="${escapeHtml(device)}" />` : ""}
           <div class="field"><label for="s-switch">Switch to</label><select id="s-switch" name="businessId">${companyOptions}</select></div>
           <button class="btn btn-ghost" type="submit">Switch company</button>
-        </form>
+        </form>`
+            : `<div class="empty">No companies yet — add one below.</div>`
+        }
+        <details class="company-add">
+          <summary>+ Add a new company</summary>
+          <form method="post" action="${withDevice("/dev/dashboard/companies", device)}">
+            ${device ? `<input type="hidden" name="device" value="${escapeHtml(device)}" />` : ""}
+            <div class="field"><label for="c-name">Company name *</label><input id="c-name" name="name" class="text-input" type="text" required /></div>
+            <div class="field-row">
+              <div class="field"><label for="c-abn">ABN</label><input id="c-abn" name="abn" class="text-input" type="text" placeholder="Optional" /></div>
+              <div class="field"><label for="c-gst-number">GST number</label><input id="c-gst-number" name="gstNumber" class="text-input" type="text" placeholder="Optional" /></div>
+            </div>
+            <div class="field"><label for="c-address">Address</label><input id="c-address" name="address" class="text-input" type="text" placeholder="Optional" /></div>
+            <div class="field-row">
+              <div class="field"><label for="c-phone">Phone number</label><input id="c-phone" name="phone" class="text-input" type="text" placeholder="Optional" /></div>
+              <div class="field"><label for="c-timezone">Timezone</label><input id="c-timezone" name="timezone" class="text-input" type="text" value="Australia/Sydney" /></div>
+            </div>
+            <div class="field-check"><input id="c-gst" name="gstRegistered" type="checkbox" checked /><label for="c-gst">GST registered</label></div>
+            <button class="btn btn-primary" type="submit">Add company</button>
+          </form>
+        </details>
       </div>
-    </section>`
-        : ""
-    }
+    </section>
     <span class="eyebrow" data-reveal><span class="dot"></span>Company details</span>
     <section class="panel" data-reveal>
       <div class="panel-inner">

@@ -73,6 +73,22 @@ export interface BusinessStore {
    *  creates a NEW company — this one only ever attaches to one already
    *  there (the company picker/switcher's "select existing" path). */
   assignBusiness(phoneNumber: string, businessId: string): Promise<BusinessRecord | null>;
+  /** Creates a brand-new company directly, independent of any phone/device
+   *  — the admin dashboard's "Add a new company" action. Distinct from
+   *  onboard(), which is idempotent per phone: calling it for an
+   *  already-onboarded admin phone would just return their existing
+   *  company instead of creating a second one. */
+  createCompany(fields: NewCompanyFields): Promise<BusinessRecord>;
+}
+
+export interface NewCompanyFields {
+  name: string;
+  abn?: string;
+  gstNumber?: string;
+  address?: string;
+  phone?: string;
+  timezone?: string;
+  gstRegistered?: boolean;
 }
 
 interface BusinessRow {
@@ -238,6 +254,26 @@ class D1BusinessStore implements BusinessStore {
       .bind(crypto.randomUUID(), businessId, phoneNumber)
       .run();
     return business;
+  }
+
+  async createCompany(fields: NewCompanyFields): Promise<BusinessRecord> {
+    const businessId = crypto.randomUUID();
+    await this.db
+      .prepare(
+        "insert into businesses (id, name, abn, gst_number, timezone, gst_registered, auto_save, address, phone) values (?, ?, ?, ?, ?, ?, 1, ?, ?)",
+      )
+      .bind(
+        businessId,
+        fields.name,
+        fields.abn || null,
+        fields.gstNumber || null,
+        fields.timezone || "Australia/Sydney",
+        fields.gstRegistered === false ? 0 : 1,
+        fields.address || null,
+        fields.phone || null,
+      )
+      .run();
+    return (await this.findBusiness(businessId))!;
   }
 
   async getSetupStep(phoneNumber: string): Promise<SetupStep | null> {

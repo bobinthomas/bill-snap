@@ -7,6 +7,7 @@ import type {
   BusinessRecord,
   BusinessStore,
   MembershipRecord,
+  NewCompanyFields,
   OnboardedUser,
   SetupStep,
 } from "../src/db/businesses";
@@ -197,6 +198,23 @@ export class FakeBusinessStore implements BusinessStore {
     if (!members.some((m) => m.userPhone === phoneNumber)) {
       this.addMember(businessId, { userPhone: phoneNumber, role: "owner", createdAt: new Date() });
     }
+    return business;
+  }
+
+  async createCompany(fields: NewCompanyFields): Promise<BusinessRecord> {
+    const business: BusinessRecord = {
+      id: `biz-${++this.seq}`,
+      name: fields.name,
+      abn: fields.abn || null,
+      gstNumber: fields.gstNumber || null,
+      timezone: fields.timezone || "Australia/Sydney",
+      gstRegistered: fields.gstRegistered ?? true,
+      autoSave: true,
+      address: fields.address || null,
+      phone: fields.phone || null,
+      createdAt: new Date(),
+    };
+    this.businesses.set(business.id, business);
     return business;
   }
 }

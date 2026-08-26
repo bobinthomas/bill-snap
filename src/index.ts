@@ -27,6 +27,7 @@ import {
   deleteDashboardBill,
   exportFileName,
   renderDashboardBillEditPage,
+  createDashboardCompany,
   renderDashboardBillsPage,
   renderDashboardPage,
   renderDashboardSettingsPage,
@@ -169,7 +170,7 @@ export function createApp(deps: AppDeps = {}) {
   app.get("/dev/dashboard/settings", async (c) => {
     const device = c.req.query("device") || undefined;
     const flashQ = c.req.query("flash");
-    const flash = flashQ === "saved" || flashQ === "switched" ? flashQ : undefined;
+    const flash = flashQ === "saved" || flashQ === "switched" || flashQ === "created" ? flashQ : undefined;
     const prev = c.req.query("prev") || undefined;
     const switchNote = prev ? `Your in-progress bill will still be logged under ${prev}.` : undefined;
     const settingsData = await dashboardSettingsData(loadConfig(c.env), cloudBindings(c.env), device);
@@ -217,6 +218,32 @@ export function createApp(deps: AppDeps = {}) {
       params.set("draft", "1");
       params.set("prev", result.previousCompanyName);
     }
+    return c.redirect(`/dev/dashboard/settings?${params.toString()}`);
+  });
+  app.post("/dev/dashboard/companies", async (c) => {
+    const config = loadConfig(c.env);
+    const bindings = cloudBindings(c.env);
+    const form = await c.req.formData().catch(() => null);
+    const device = (typeof form?.get("device") === "string" ? (form.get("device") as string) : "") || undefined;
+    const str = (key: string) => {
+      const v = form?.get(key);
+      return typeof v === "string" ? v.trim() : "";
+    };
+    const name = str("name");
+    if (!name) return c.text("name required", 400);
+    const timezone = str("timezone");
+    await createDashboardCompany(config, bindings, device, {
+      name,
+      abn: str("abn"),
+      gstNumber: str("gstNumber"),
+      address: str("address"),
+      phone: str("phone"),
+      ...(timezone ? { timezone } : {}),
+      gstRegistered: form?.get("gstRegistered") === "on",
+    });
+    const params = new URLSearchParams();
+    if (device) params.set("device", device);
+    params.set("flash", "created");
     return c.redirect(`/dev/dashboard/settings?${params.toString()}`);
   });
   app.get("/dev/dashboard/bills", async (c) => {
